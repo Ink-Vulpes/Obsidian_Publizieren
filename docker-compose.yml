@@ -4,19 +4,15 @@ version: "3.9"
 # Obsidian Publisher Stack
 #
 # Services:
-#   web   – Rust web server that renders notes on-the-fly (port 3000)
-#   ftp   – vsftpd FTP server for uploading / syncing the Obsidian vault
+#   web   – Rust web server (port 3000)
+#   ftp   – vsftpd FTP server for uploading the vault (port 21)
+#   mysql – MySQL 8 for user/session/permission data
 #
-# Shared volume:
-#   vault-data  – mounted at /vault (web) and /home/vsftpd/<FTP_USER> (ftp)
+# Quick start:
+#   1. Copy config.yml.example to config/config.yml and adjust settings.
+#   2. docker compose up -d
 #
-# FTP credentials (change before going to production!):
-#   User:     ${FTP_USER:-obsidian}
-#   Password: ${FTP_PASS:-changeme}
-#   Passive:  ports 21100–21110
-#
-# After uploading new notes via FTP, reload the index:
-#   curl http://localhost:3000/api/reload
+# After uploading new notes via FTP: curl http://localhost:3000/api/reload
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -34,21 +30,19 @@ services:
     volumes:
       - vault-data:/vault
       - ./static:/app/static:ro
+      - ./config:/config:ro
     environment:
-      VAULT_PATH: /vault
-      PORT: 3000
-      SITE_TITLE: "${SITE_TITLE:-My Digital Garden}"
-      SITE_DESCRIPTION: "${SITE_DESCRIPTION:-A collection of interconnected notes}"
-      BASE_URL: "${BASE_URL:-http://localhost:3000}"
+      CONFIG_PATH: /config/config.yml
       RUST_LOG: "${RUST_LOG:-info}"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     depends_on:
-      - ftp
+      mysql:
+        condition: service_healthy
 
   # ── FTP server ───────────────────────────────────────────────────────────────
   ftp:
@@ -70,19 +64,39 @@ services:
       FILE_OPEN_MODE: "0644"
       LOG_STDOUT: "true"
 
+  # ── MySQL ────────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: obsidian-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-rootchangeme}"
+      MYSQL_DATABASE: "obsidian"
+      MYSQL_USER: "obsidian"
+      MYSQL_PASSWORD: "${MYSQL_PASS:-changeme}"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "obsidian", "--password=${MYSQL_PASS:-changeme}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   vault-data:
     driver: local
+  mysql-data:
+    driver: local
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Configuration via .env file (create in project root):
+# .env variables (create a .env file in project root):
 #
 #   WEB_PORT=3000
-#   SITE_TITLE=My Notes
-#   SITE_DESCRIPTION=Personal digital garden
-#   BASE_URL=https://notes.example.com
 #   FTP_USER=obsidian
 #   FTP_PASS=a_strong_password
-#   PASV_ADDRESS=your.server.ip.or.hostname
+#   PASV_ADDRESS=your.server.ip
+#   MYSQL_ROOT_PASSWORD=a_strong_root_pw
+#   MYSQL_PASS=a_strong_db_pw
 #   RUST_LOG=info
 # ─────────────────────────────────────────────────────────────────────────────

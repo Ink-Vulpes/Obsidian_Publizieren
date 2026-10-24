@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administration — {{ site_title }}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    body { background: var(--bg); color: var(--text); font-family: var(--font-body, sans-serif); }
+    .admin-wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+    .admin-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }
+    .admin-header a { color: var(--accent); font-size: .9rem; text-decoration: none; }
+    h1 { font-size: 1.6rem; font-weight: 800; margin: 0; }
+    h2 { font-size: 1.15rem; font-weight: 700; margin: 2rem 0 .8rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border); }
+    .card { background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 2rem; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { padding: .6rem .9rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+    tr:last-child td { border-bottom: none; }
+    .badge { display: inline-block; padding: .15rem .5rem; border-radius: 4px; font-size: .75rem; font-weight: 600; }
+    .badge-admin { background: rgba(100,140,255,.18); color: #7090ff; }
+    .badge-user { background: rgba(120,120,120,.15); color: var(--text-muted); }
+    .btn { padding: .35rem .8rem; border-radius: 5px; border: none; cursor: pointer; font-size: .82rem; font-weight: 600; transition: opacity .15s; }
+    .btn:hover { opacity: .8; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-danger { background: rgba(220,60,60,.2); color: #e06060; border: 1px solid rgba(220,60,60,.3); }
+    .btn-secondary { background: rgba(130,130,130,.15); color: var(--text); border: 1px solid var(--border); }
+    .invite-box { padding: 1rem; }
+    .invite-url { font-family: var(--font-code, monospace); font-size: .82rem; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: .4rem .6rem; word-break: break-all; margin-top: .5rem; display: none; }
+    .perm-form input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+    .perm-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .4rem; font-size: .88rem; }
+    .perm-row label { cursor: pointer; }
+    .folders-input { width: 100%; font-family: var(--font-code, monospace); font-size: .8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: .4rem .6rem; color: var(--text); resize: vertical; min-height: 70px; box-sizing: border-box; }
+    .list-tag { display: inline-flex; align-items: center; gap: .4rem; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: .2rem .6rem; font-size: .82rem; margin: .2rem; font-family: var(--font-code, monospace); }
+    .list-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; }
+    .list-remove:hover { color: #e06060; }
+    .add-form { display: flex; gap: .5rem; margin-top: .6rem; }
+    .add-form input { flex: 1; padding: .4rem .7rem; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font-size: .85rem; font-family: var(--font-code, monospace); }
+    .section-empty { color: var(--text-muted); font-size: .88rem; font-style: italic; }
+    details > summary { cursor: pointer; user-select: none; list-style: none; }
+    details > summary::before { content: '▶ '; font-size: .75em; }
+    details[open] > summary::before { content: '▼ '; }
+  </style>
+</head>
+<body>
+<div class="admin-wrap">
+  <div class="admin-header">
+    <h1>Administration</h1>
+    <a href="/">← Zurück zur Notiz</a>
+  </div>
+
+  <!-- ── Users ── -->
+  <h2 id="users">Benutzer</h2>
+
+  {% if current_user.can_manage_users or current_user.is_admin %}
+  <div class="invite-box" style="margin-bottom:1rem">
+    <button class="btn btn-primary" onclick="createInvite()">+ Einladungslink erstellen (48h)</button>
+    <div class="invite-url" id="invite-url"></div>
+    <button class="btn btn-secondary" id="copy-invite-btn" style="display:none;margin-top:.4rem" onclick="copyInvite()">Kopieren</button>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <table>
+      <thead><tr><th>ID</th><th>Benutzername</th><th>Rolle</th><th>Berechtigungen</th><th>Aktionen</th></tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td style="color:var(--text-muted)">{{ u.id }}</td>
+          <td><strong>{{ u.username }}</strong></td>
+          <td>
+            {% if u.is_admin %}
+              <span class="badge badge-admin">Admin</span>
+            {% else %}
+              <span class="badge badge-user">Nutzer</span>
+            {% endif %}
+          </td>
+          <td style="font-size:.8rem;color:var(--text-muted)">
+            {% if u.is_admin %}
+              Alle Rechte
+            {% else %}
+              {% if u.permissions.can_upload %}Upload {% endif %}
+              {% if u.permissions.can_manage_users %}Nutzer {% endif %}
+              {% if u.permissions.can_manage_lists %}Listen {% endif %}
+              {% if u.permissions.folder_restriction %}Ordner-Einschränkung{% endif %}
+              {% if not u.permissions.can_upload and not u.permissions.can_manage_users and not u.permissions.can_manage_lists and not u.permissions.folder_restriction %}
+                <span style="font-style:italic">keine</span>
+              {% endif %}
+            {% endif %}
+          </td>
+          <td>
+            {% if not u.is_admin %}
+              {% if current_user.can_manage_users or current_user.is_admin %}
+              <details>
+                <summary class="btn btn-secondary" style="display:inline-block">Rechte bearbeiten</summary>
+                <form method="post" action="/admin/users/{{ u.id }}/permissions" style="padding:1rem 0">
+                  <div class="perm-row"><input type="checkbox" name="can_upload" id="cu_{{ u.id }}" {% if u.permissions.can_upload %}checked{% endif %}><label for="cu_{{ u.id }}">Darf Dateien hochladen</label></div>
+                  <div class="perm-row"><input type="checkbox" name="can_manage_users" id="cmu_{{ u.id }}" {% if u.permissions.can_manage_users %}checked{% endif %}><label for="cmu_{{ u.id }}">Kann Nutzer verwalten</label></div>
+                  <div class="perm-row"><input type="checkbox" name="can_manage_lists" id="cml_{{ u.id }}" {% if u.permissions.can_manage_lists %}checked{% endif %}><label for="cml_{{ u.id }}">Kann White-/Blacklist verwalten</label></div>
+                  <div class="perm-row"><input type="checkbox" name="folder_restriction" id="cfr_{{ u.id }}" {% if u.permissions.folder_restriction %}checked{% endif %}><label for="cfr_{{ u.id }}">Ordner-Einschränkung aktiv</label></div>
+                  <div style="margin-top:.6rem">
+                    <label style="font-size:.8rem;color:var(--text-muted);display:block;margin-bottom:.3rem">Erlaubte Ordner (je eine Zeile, leer = alle):</label>
+                    <textarea class="folders-input" name="folders">{{ u.allowed_folders | join(sep="\n") }}</textarea>
+                  </div>
+                  <button type="submit" class="btn btn-primary" style="margin-top:.6rem">Speichern</button>
+                </form>
+              </details>
+              {% endif %}
+              {% if current_user.is_admin %}
+              <button class="btn btn-danger" onclick="deleteUser({{ u.id }}, '{{ u.username }}')">Löschen</button>
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Lists ── -->
+  <h2 id="lists">Whitelist / Blacklist</h2>
+  <p style="font-size:.88rem;color:var(--text-muted)">
+    Whitelist: wenn nicht leer, werden nur diese Notizen angezeigt.<br>
+    Blacklist: diese Notizen werden immer versteckt.
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+    <!-- Whitelist -->
+    <div>
+      <h3 style="font-size:1rem;margin:0 0 .6rem">Whitelist</h3>
+      <div>
+        {% if whitelist | length == 0 %}
+          <span class="section-empty">Leer (alle Notizen sichtbar)</span>
+        {% else %}
+          {% for slug in whitelist %}
+          <span class="list-tag">
+            {{ slug }}
+            {% if current_user.can_manage_lists or current_user.is_admin %}
+            <form method="post" action="/admin/whitelist/remove" style="display:inline;margin:0">
+              <input type="hidden" name="slug" value="{{ slug }}">
+              <button type="submit" class="list-remove" title="Entfernen">×</button>
+            </form>
+            {% endif %}
+          </span>
+          {% endfor %}
+        {% endif %}
+      </div>
+      {% if current_user.can_manage_lists or current_user.is_admin %}
+      <form method="post" action="/admin/whitelist/add" class="add-form">
+        <input type="text" name="slug" placeholder="notiz/pfad/slug" list="slug-list" required>
+        <button type="submit" class="btn btn-primary">+ Add</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <!-- Blacklist -->
+    <div>
+      <h3 style="font-size:1rem;margin:0 0 .6rem">Blacklist</h3>
+      <div>
+        {% if blacklist | length == 0 %}
+          <span class="section-empty">Leer</span>
+        {% else %}
+          {% for slug in blacklist %}
+          <span class="list-tag">
+            {{ slug }}
+            {% if current_user.can_manage_lists or current_user.is_admin %}
+            <form method="post" action="/admin/blacklist/remove" style="display:inline;margin:0">
+              <input type="hidden" name="slug" value="{{ slug }}">
+              <button type="submit" class="list-remove" title="Entfernen">×</button>
+            </form>
+            {% endif %}
+          </span>
+          {% endfor %}
+        {% endif %}
+      </div>
+      {% if current_user.can_manage_lists or current_user.is_admin %}
+      <form method="post" action="/admin/blacklist/add" class="add-form">
+        <input type="text" name="slug" placeholder="notiz/pfad/slug" list="slug-list" required>
+        <button type="submit" class="btn btn-danger">+ Add</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Autocomplete datalist for slugs -->
+  <datalist id="slug-list">
+    {% for s in all_slugs %}<option value="{{ s }}">{% endfor %}
+  </datalist>
+</div>
+
+<script>
+async function createInvite() {
+  try {
+    const r = await fetch('/admin/invite', { method: 'POST' });
+    const d = await r.json();
+    if (d.url) {
+      document.getElementById('invite-url').textContent = d.url;
+      document.getElementById('invite-url').style.display = 'block';
+      document.getElementById('copy-invite-btn').style.display = 'inline-block';
+    }
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+function copyInvite() {
+  const url = document.getElementById('invite-url').textContent;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('copy-invite-btn');
+    btn.textContent = 'Kopiert!';
+    setTimeout(() => btn.textContent = 'Kopieren', 2000);
+  });
+}
+
+async function deleteUser(id, name) {
+  if (!confirm(`Nutzer "${name}" (ID ${id}) wirklich löschen?`)) return;
+  try {
+    const r = await fetch('/admin/users/' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+</script>
+</body>
+</html>

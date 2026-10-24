@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obsidian Uploader</title>
+<style>
+  :root { --bg:#18181b; --bg2:#27272a; --border:#3f3f46; --text:#f4f4f5; --muted:#71717a; --accent:#7c6af7; --green:#22c55e; --yellow:#eab308; --red:#ef4444; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+  h1 { font-size: 1.4rem; font-weight: 800; margin-bottom: .3rem; }
+  .sub { color: var(--muted); font-size: .88rem; margin-bottom: 2rem; }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  h2 { font-size: .95rem; font-weight: 700; margin-bottom: 1rem; }
+  .field { margin-bottom: .8rem; }
+  label { display: block; font-size: .78rem; font-weight: 600; color: var(--muted); margin-bottom: .3rem; text-transform: uppercase; letter-spacing: .04em; }
+  input[type=text], input[type=password], input[type=url] { width: 100%; padding: .5rem .75rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: .9rem; outline: none; }
+  input:focus { border-color: var(--accent); }
+  .btn { padding: .45rem 1rem; border-radius: 6px; border: none; cursor: pointer; font-size: .88rem; font-weight: 600; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: rgba(130,130,130,.15); color: var(--text); border: 1px solid var(--border); }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-danger { background: var(--red); color: #fff; }
+  .error { color: var(--red); font-size: .85rem; margin-top: .5rem; }
+  .success { color: var(--green); font-size: .85rem; margin-top: .5rem; }
+  .step { display: none; }
+  .step.active { display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th { padding: .4rem .6rem; text-align: left; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--border); }
+  td { padding: .45rem .6rem; border-bottom: 1px solid rgba(63,63,70,.5); }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: .1rem .5rem; border-radius: 4px; font-size: .72rem; font-weight: 700; }
+  .badge-new { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge-modified { background: rgba(234,179,8,.15); color: var(--yellow); }
+  .badge-deleted { background: rgba(239,68,68,.15); color: var(--red); }
+  .check-all { display: flex; gap: .5rem; margin-bottom: .8rem; }
+  .loading { color: var(--muted); font-size: .9rem; padding: 1rem 0; }
+  .result-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin-top: .8rem; font-size: .85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Obsidian Uploader</h1>
+  <p class="sub">Synchronisiert deine lokalen Notizen mit dem Server.</p>
+
+  <!-- Step 1: Connect + Login -->
+  <div class="step active" id="step-login">
+    <div class="card">
+      <h2>Server & Anmeldung</h2>
+      <div class="field">
+        <label>Server-URL</label>
+        <input type="url" id="server-url" placeholder="https://notes.example.com" value="">
+      </div>
+      <div class="field">
+        <label>Lokaler Vault-Pfad</label>
+        <input type="text" id="vault-path" placeholder="/home/user/Obsidian/MyVault">
+      </div>
+      <div class="field">
+        <label>Benutzername</label>
+        <input type="text" id="username" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Passwort</label>
+        <input type="password" id="password" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" onclick="doConnect()">Verbinden</button>
+      <div id="login-error" class="error" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Step 2: Diff -->
+  <div class="step" id="step-diff">
+    <div class="card">
+      <h2 id="diff-title">Änderungen</h2>
+      <div id="diff-loading" class="loading">Lade Änderungen…</div>
+      <div id="diff-content" style="display:none">
+        <div class="check-all">
+          <button class="btn btn-secondary" onclick="selectAll('new')">Alle Neuen</button>
+          <button class="btn btn-secondary" onclick="selectAll('modified')">Alle Geänderten</button>
+          <button class="btn btn-secondary" onclick="selectAll('deleted')">Alle Gelöschten</button>
+          <button class="btn btn-secondary" onclick="selectAll('all')">Alle</button>
+          <button class="btn btn-secondary" onclick="selectAll('none')">Keine</button>
+        </div>
+        <table>
+          <thead><tr><th><input type="checkbox" id="select-all" onchange="toggleAll(this)"></th><th>Datei</th><th>Status</th><th>Lokale Größe</th></tr></thead>
+          <tbody id="diff-table"></tbody>
+        </table>
+        <div style="margin-top:1rem;display:flex;gap:.5rem;align-items:center">
+          <button class="btn btn-primary" onclick="doSync()">Ausgewählte synchronisieren</button>
+          <button class="btn btn-secondary" onclick="refreshDiff()">Aktualisieren</button>
+          <button class="btn btn-secondary" onclick="logout()">Abmelden</button>
+        </div>
+        <div id="sync-result" style="display:none"></div>
+      </div>
+      <div id="diff-empty" style="display:none;color:var(--muted);padding:.5rem 0">Keine Änderungen gefunden.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let diffData = [];
+
+async function doConnect() {
+  const serverUrl = document.getElementById('server-url').value.trim();
+  const vaultPath = document.getElementById('vault-path').value.trim();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+
+  if (!serverUrl || !vaultPath || !username || !password) {
+    errEl.textContent = 'Alle Felder ausfüllen.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server_url: serverUrl, vault_path: vaultPath, username, password })
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      errEl.textContent = d.error || 'Anmeldung fehlgeschlagen.';
+      errEl.style.display = 'block';
+      return;
+    }
+    document.getElementById('diff-title').textContent = 'Änderungen — ' + d.username;
+    document.getElementById('step-login').classList.remove('active');
+    document.getElementById('step-diff').classList.add('active');
+    await refreshDiff();
+  } catch(e) {
+    errEl.textContent = 'Fehler: ' + e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+async function refreshDiff() {
+  document.getElementById('diff-loading').style.display = 'block';
+  document.getElementById('diff-content').style.display = 'none';
+  document.getElementById('diff-empty').style.display = 'none';
+  document.getElementById('sync-result').style.display = 'none';
+  try {
+    const r = await fetch('/api/diff');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    diffData = await r.json();
+    renderDiff();
+  } catch(e) {
+    document.getElementById('diff-loading').textContent = 'Fehler: ' + e.message;
+  }
+}
+
+function renderDiff() {
+  document.getElementById('diff-loading').style.display = 'none';
+  if (diffData.length === 0) {
+    document.getElementById('diff-empty').style.display = 'block';
+    return;
+  }
+  document.getElementById('diff-content').style.display = 'block';
+  const tbody = document.getElementById('diff-table');
+  tbody.innerHTML = '';
+  for (const entry of diffData) {
+    const tr = document.createElement('tr');
+    const badgeClass = 'badge-' + entry.status;
+    const label = entry.status === 'new' ? 'Neu' : entry.status === 'modified' ? 'Geändert' : 'Gelöscht';
+    const size = entry.local_size != null ? formatSize(entry.local_size) : '—';
+    tr.innerHTML = `
+      <td><input type="checkbox" class="diff-check" data-path="${esc(entry.path)}" data-status="${entry.status}" checked></td>
+      <td style="font-family:monospace;word-break:break-all">${esc(entry.path)}</td>
+      <td><span class="badge ${badgeClass}">${label}</span></td>
+      <td style="color:var(--muted)">${size}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function selectAll(type) {
+  document.querySelectorAll('.diff-check').forEach(cb => {
+    if (type === 'all') cb.checked = true;
+    else if (type === 'none') cb.checked = false;
+    else cb.checked = cb.dataset.status === type;
+  });
+}
+
+function toggleAll(master) {
+  document.querySelectorAll('.diff-check').forEach(cb => cb.checked = master.checked);
+}
+
+async function doSync() {
+  const checks = document.querySelectorAll('.diff-check');
+  const uploadPaths = [], deletePaths = [];
+  checks.forEach(cb => {
+    if (!cb.checked) return;
+    if (cb.dataset.status === 'deleted') deletePaths.push(cb.dataset.path);
+    else uploadPaths.push(cb.dataset.path);
+  });
+
+  if (uploadPaths.length + deletePaths.length === 0) {
+    alert('Keine Dateien ausgewählt.');
+    return;
+  }
+
+  const resultEl = document.getElementById('sync-result');
+  resultEl.style.display = 'none';
+
+  try {
+    const r = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: uploadPaths, delete_paths: deletePaths })
+    });
+    const d = await r.json();
+    const errHtml = (d.errors || []).length > 0
+      ? '<div style="color:var(--red);margin-top:.5rem">Fehler:<br>' + d.errors.map(e => esc(e)).join('<br>') + '</div>'
+      : '';
+    resultEl.innerHTML = `
+      <div class="result-box">
+        <span style="color:var(--green)">✓ ${d.uploaded || 0} hochgeladen</span>
+        ${d.deleted ? `<span style="margin-left:1rem;color:var(--muted)">${d.deleted} gelöscht</span>` : ''}
+        ${errHtml}
+      </div>
+    `;
+    resultEl.style.display = 'block';
+    setTimeout(refreshDiff, 1500);
+  } catch(e) {
+    resultEl.innerHTML = `<div class="result-box" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    resultEl.style.display = 'block';
+  }
+}
+
+function logout() {
+  document.getElementById('step-diff').classList.remove('active');
+  document.getElementById('step-login').classList.add('active');
+  document.getElementById('password').value = '';
+  diffData = [];
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Pre-fill from query params (e.g. obsidian-uploader --vault /path)
+const params = new URLSearchParams(location.search);
+if (params.get('vault')) document.getElementById('vault-path').value = params.get('vault');
+if (params.get('server')) document.getElementById('server-url').value = params.get('server');
+</script>
+</body>
+</html>

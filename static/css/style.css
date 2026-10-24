@@ -214,7 +214,26 @@ a:hover { color: var(--tertiary); text-decoration: underline; }
   padding-top: 0.5rem;
   border-top: 1px solid rgba(128,128,128,.15);
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.user-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0;
+}
+.user-name {
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .icon-btn {

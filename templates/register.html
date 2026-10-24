@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registrieren — {{ site_title }}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); }
+    .login-card { width: 100%; max-width: 400px; padding: 2.5rem 2rem; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.35); }
+    .login-logo { display: flex; align-items: center; gap: .6rem; margin-bottom: 2rem; text-decoration: none; color: var(--text); }
+    .login-logo svg { width: 28px; height: 28px; color: var(--accent); }
+    .login-logo span { font-size: 1.1rem; font-weight: 700; }
+    h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 1.5rem; color: var(--text); }
+    .field { margin-bottom: 1rem; }
+    label { display: block; font-size: .82rem; font-weight: 600; color: var(--text-muted); margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .04em; }
+    input[type=text], input[type=password] { width: 100%; padding: .6rem .8rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: .95rem; box-sizing: border-box; outline: none; transition: border-color .15s; }
+    input:focus { border-color: var(--accent); }
+    .btn-login { width: 100%; padding: .65rem; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-size: .95rem; font-weight: 600; cursor: pointer; margin-top: .5rem; transition: opacity .15s; }
+    .btn-login:hover { opacity: .85; }
+    .error-msg { background: rgba(220,50,50,.12); border: 1px solid rgba(220,50,50,.35); border-radius: 6px; padding: .6rem .8rem; color: #e06060; font-size: .88rem; margin-bottom: 1rem; }
+    .invalid-msg { background: rgba(220,150,50,.12); border: 1px solid rgba(220,150,50,.35); border-radius: 6px; padding: 1rem; color: #e0a050; font-size: .95rem; }
+    .hint { font-size: .78rem; color: var(--text-muted); margin-top: .25rem; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <a class="login-logo" href="/login">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <span>{{ site_title }}</span>
+    </a>
+
+    {% if not valid %}
+      <div class="invalid-msg">
+        <strong>Einladungslink ungültig oder abgelaufen.</strong><br>
+        Bitte einen neuen Link vom Administrator anfordern.
+      </div>
+    {% else %}
+      <h2>Konto erstellen</h2>
+      {% if error and error != "" %}<div class="error-msg">{{ error }}</div>{% endif %}
+
+      <form method="post" action="/register/{{ token }}">
+        <div class="field">
+          <label for="username">Benutzername</label>
+          <input type="text" id="username" name="username" autofocus autocomplete="username" required minlength="3">
+          <div class="hint">Mindestens 3 Zeichen, kein Leerzeichen.</div>
+        </div>
+        <div class="field">
+          <label for="password">Passwort</label>
+          <input type="password" id="password" name="password" autocomplete="new-password" required minlength="8">
+          <div class="hint">Mindestens 8 Zeichen.</div>
+        </div>
+        <div class="field">
+          <label for="password_confirm">Passwort wiederholen</label>
+          <input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" required>
+        </div>
+        <button type="submit" class="btn-login">Konto erstellen</button>
+      </form>
+    {% endif %}
+  </div>
+</body>
+</html>

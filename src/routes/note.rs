@@ -1,22 +1,32 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
 };
 use serde_json::json;
 
-use crate::{vault::NoteKind, AppState};
+use crate::{auth::CurrentUser, vault::NoteKind, AppState};
 
-pub async fn index(State(state): State<AppState>) -> Response {
+pub async fn index(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
     let vault = state.vault.read().await;
+    let wl = state.whitelist.read().unwrap();
+    let bl = state.blacklist.read().unwrap();
 
-    let first = vault
-        .find_by_title("index")
-        .or_else(|| vault.find_by_title("home"))
-        .or_else(|| vault.find_by_title("readme"))
+    let first = ["index", "home", "readme"]
+        .iter()
+        .find_map(|t| vault.find_by_title(t))
         .or_else(|| vault.notes.values().next())
+        .filter(|n| {
+            !bl.contains(&n.slug)
+                && (wl.is_empty() || wl.contains(&n.slug))
+                && current_user.can_see_note(&n.slug)
+        })
         .map(|n| n.slug.clone());
-
+    drop(wl);
+    drop(bl);
     drop(vault);
 
     if let Some(slug) = first {
@@ -24,8 +34,9 @@ pub async fn index(State(state): State<AppState>) -> Response {
     }
 
     let mut ctx = tera::Context::new();
-    ctx.insert("site_title", &state.config.site_title);
-    ctx.insert("site_description", &state.config.site_description);
+    ctx.insert("site_title", &state.config.server.site_title);
+    ctx.insert("site_description", &state.config.server.site_description);
+    ctx.insert("current_user", &current_user);
 
     let html = state
         .tera
@@ -37,6 +48,7 @@ pub async fn index(State(state): State<AppState>) -> Response {
 pub async fn render_note(
     Path(path): Path<String>,
     State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
 ) -> Response {
     let vault = state.vault.read().await;
 
@@ -58,6 +70,28 @@ pub async fn render_note(
         }
     };
 
+    // Whitelist / blacklist / folder-access check
+    {
+        let bl = state.blacklist.read().unwrap();
+        let wl = state.whitelist.read().unwrap();
+        if bl.contains(&entry.slug) {
+            drop(bl);
+            drop(wl);
+            drop(vault);
+            return not_found(&state);
+        }
+        if !wl.is_empty() && !wl.contains(&entry.slug) {
+            drop(bl);
+            drop(wl);
+            drop(vault);
+            return not_found(&state);
+        }
+    }
+    if !current_user.can_see_note(&entry.slug) {
+        drop(vault);
+        return not_found(&state);
+    }
+
     let kind = entry.kind.clone();
     let note_path = vault.root.join(&entry.path);
     let slug = entry.slug.clone();
@@ -66,25 +100,26 @@ pub async fn render_note(
     let backlinks: Vec<serde_json::Value> = vault
         .get_backlinks(&slug)
         .iter()
+        .filter(|n| current_user.can_see_note(&n.slug))
         .map(|n| json!({ "title": n.title, "slug": n.slug }))
         .collect();
 
-    let file_tree = build_file_tree_json(&vault);
+    let file_tree = build_file_tree_json_filtered(&vault, &current_user, &state);
     drop(vault);
 
     match kind {
         NoteKind::Markdown => {
-            render_markdown(note_path, slug, note_title, backlinks, file_tree, state)
+            render_markdown(note_path, slug, note_title, backlinks, file_tree, current_user, state)
                 .await
                 .into_response()
         }
         NoteKind::Canvas => {
-            render_canvas(note_path, slug, note_title, backlinks, file_tree, state)
+            render_canvas(note_path, slug, note_title, backlinks, file_tree, current_user, state)
                 .await
                 .into_response()
         }
         NoteKind::Excalidraw => {
-            render_excalidraw(note_path, slug, note_title, backlinks, file_tree, state)
+            render_excalidraw(note_path, slug, note_title, backlinks, file_tree, current_user, state)
                 .await
                 .into_response()
         }
@@ -97,6 +132,7 @@ async fn render_markdown(
     fallback_title: String,
     backlinks: Vec<serde_json::Value>,
     file_tree: serde_json::Value,
+    current_user: CurrentUser,
     state: AppState,
 ) -> Html<String> {
     let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
@@ -104,14 +140,10 @@ async fn render_markdown(
     let parsed = crate::parser::markdown::parse_markdown(&content, &vault);
     drop(vault);
 
-    let page_title = if parsed.title.is_empty() {
-        fallback_title
-    } else {
-        parsed.title.clone()
-    };
+    let page_title = if parsed.title.is_empty() { fallback_title } else { parsed.title.clone() };
 
     let mut ctx = tera::Context::new();
-    ctx.insert("site_title", &state.config.site_title);
+    ctx.insert("site_title", &state.config.server.site_title);
     ctx.insert("page_title", &page_title);
     ctx.insert("description", &parsed.description);
     ctx.insert("content", &parsed.html);
@@ -120,12 +152,9 @@ async fn render_markdown(
     ctx.insert("backlinks", &backlinks);
     ctx.insert("file_tree", &file_tree);
     ctx.insert("slug", &slug);
+    ctx.insert("current_user", &current_user);
 
-    let html = state
-        .tera
-        .render("note.html", &ctx)
-        .unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>"));
-    Html(html)
+    Html(state.tera.render("note.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }
 
 async fn render_canvas(
@@ -134,31 +163,25 @@ async fn render_canvas(
     note_title: String,
     backlinks: Vec<serde_json::Value>,
     file_tree: serde_json::Value,
+    current_user: CurrentUser,
     state: AppState,
 ) -> Html<String> {
     let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
     let canvas_json = match crate::parser::canvas::parse_canvas(&content) {
         Ok(c) => serde_json::to_string(&c).unwrap_or_else(|_| "{}".to_string()),
-        Err(e) => {
-            tracing::warn!("Canvas parse error for {}: {}", slug, e);
-            "{}".to_string()
-        }
+        Err(e) => { tracing::warn!("Canvas parse error for {}: {}", slug, e); "{}".to_string() }
     };
 
     let mut ctx = tera::Context::new();
-    ctx.insert("site_title", &state.config.site_title);
+    ctx.insert("site_title", &state.config.server.site_title);
     ctx.insert("page_title", &note_title);
     ctx.insert("canvas_json", &canvas_json);
     ctx.insert("backlinks", &backlinks);
     ctx.insert("file_tree", &file_tree);
     ctx.insert("slug", &slug);
+    ctx.insert("current_user", &current_user);
 
-    Html(
-        state
-            .tera
-            .render("canvas.html", &ctx)
-            .unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")),
-    )
+    Html(state.tera.render("canvas.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }
 
 async fn render_excalidraw(
@@ -167,68 +190,52 @@ async fn render_excalidraw(
     note_title: String,
     backlinks: Vec<serde_json::Value>,
     file_tree: serde_json::Value,
+    current_user: CurrentUser,
     state: AppState,
 ) -> Html<String> {
     let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
     let vault = state.vault.read().await;
     let excalidraw_json = {
-        let mut data = crate::parser::excalidraw::parse_excalidraw(&content)
-            .unwrap_or_default();
-        crate::parser::excalidraw::resolve_embedded_files(
-            &mut data,
-            &vault.root,
-            &vault.asset_paths,
-        );
+        let mut data = crate::parser::excalidraw::parse_excalidraw(&content).unwrap_or_default();
+        crate::parser::excalidraw::resolve_embedded_files(&mut data, &vault.root, &vault.asset_paths);
         serde_json::to_string(&data).unwrap_or_else(|_| r#"{"elements":[]}"#.to_string())
     };
     drop(vault);
 
     let mut ctx = tera::Context::new();
-    ctx.insert("site_title", &state.config.site_title);
+    ctx.insert("site_title", &state.config.server.site_title);
     ctx.insert("page_title", &note_title);
     ctx.insert("excalidraw_json", &excalidraw_json);
     ctx.insert("backlinks", &backlinks);
     ctx.insert("file_tree", &file_tree);
     ctx.insert("slug", &slug);
+    ctx.insert("current_user", &current_user);
 
-    Html(
-        state
-            .tera
-            .render("excalidraw.html", &ctx)
-            .unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")),
-    )
+    Html(state.tera.render("excalidraw.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }
 
-fn not_found(state: &AppState) -> Response {
-    let html = format!(
-        r#"<!DOCTYPE html><html><head><title>Not Found — {}</title>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/static/css/style.css">
-</head><body><div style="padding:4rem;text-align:center">
-<h1>404</h1><p>Note not found.</p><a href="/">← Home</a></div></body></html>"#,
-        state.config.site_title
-    );
-    (StatusCode::NOT_FOUND, Html(html)).into_response()
-}
+/// Filtered file tree that respects user folder/list permissions.
+pub fn build_file_tree_json_filtered(
+    vault: &crate::vault::Vault,
+    user: &CurrentUser,
+    state: &AppState,
+) -> serde_json::Value {
+    let wl = state.whitelist.read().unwrap();
+    let bl = state.blacklist.read().unwrap();
 
-pub fn build_file_tree_json(vault: &crate::vault::Vault) -> serde_json::Value {
     fn insert(node: &mut serde_json::Value, parts: &[&str], slug: &str, title: &str, kind: &str) {
-        if parts.is_empty() {
-            return;
-        }
+        if parts.is_empty() { return; }
         let arr = node.as_array_mut().unwrap();
         if parts.len() == 1 {
-            arr.push(json!({ "name": title, "slug": slug, "type": "file", "kind": kind }));
+            arr.push(serde_json::json!({ "name": title, "slug": slug, "type": "file", "kind": kind }));
             return;
         }
         let folder_name = parts[0];
-        let pos = arr
-            .iter()
-            .position(|n| n["type"] == "folder" && n["name"] == folder_name);
+        let pos = arr.iter().position(|n| n["type"] == "folder" && n["name"] == folder_name);
         let idx = match pos {
             Some(i) => i,
             None => {
-                arr.push(json!({ "name": folder_name, "type": "folder", "children": [] }));
+                arr.push(serde_json::json!({ "name": folder_name, "type": "folder", "children": [] }));
                 arr.len() - 1
             }
         };
@@ -242,13 +249,32 @@ pub fn build_file_tree_json(vault: &crate::vault::Vault) -> serde_json::Value {
     sorted.sort_by(|a, b| a.path.cmp(&b.path));
 
     for note in sorted {
+        // Apply list filters
+        if bl.contains(&note.slug) { continue; }
+        if !wl.is_empty() && !wl.contains(&note.slug) { continue; }
+        // Apply user folder filter
+        if !user.can_see_note(&note.slug) { continue; }
+
         let parts: Vec<&str> = note.path.split('/').collect();
         let kind = match note.kind {
-            NoteKind::Canvas => "canvas",
-            NoteKind::Excalidraw => "excalidraw",
-            NoteKind::Markdown => "markdown",
+            crate::vault::NoteKind::Canvas => "canvas",
+            crate::vault::NoteKind::Excalidraw => "excalidraw",
+            crate::vault::NoteKind::Markdown => "markdown",
         };
         insert(&mut root, &parts, &note.slug, &note.title, kind);
     }
     root
 }
+
+fn not_found(state: &AppState) -> Response {
+    let html = format!(
+        r#"<!DOCTYPE html><html><head><title>Not Found — {}</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/static/css/style.css">
+</head><body><div style="padding:4rem;text-align:center">
+<h1>404</h1><p>Note not found.</p><a href="/">← Home</a></div></body></html>"#,
+        state.config.server.site_title
+    );
+    (StatusCode::NOT_FOUND, Html(html)).into_response()
+}
+

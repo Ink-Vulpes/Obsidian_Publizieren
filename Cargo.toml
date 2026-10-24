@@ -8,12 +8,14 @@ name = "obsidian-publisher"
 path = "src/main.rs"
 
 [dependencies]
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "multipart"] }
+axum-extra = { version = "0.9", features = ["cookie"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
 tera = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 comrak = "0.21"
 walkdir = "2"
 regex = "1"
@@ -23,3 +25,18 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 urlencoding = "2"
 anyhow = "1"
 base64 = "0.22"
+sqlx = { version = "0.8", features = ["mysql", "runtime-tokio-rustls", "chrono"] }
+argon2 = "0.5"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+cookie = "0.18"
+time = "0.3"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+open = "5"
+
+[[bin]]
+name = "obsidian-uploader"
+path = "src/bin/uploader.rs"
