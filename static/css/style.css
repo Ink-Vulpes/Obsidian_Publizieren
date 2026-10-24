@@ -71,11 +71,11 @@ a:hover { color: var(--tertiary); text-decoration: underline; }
 .sidebar {
   background: var(--lightgray);
   border-right: 1px solid var(--lightgray);
-  min-height: 100%;
   overflow-y: auto;
   position: sticky;
   top: 0;
   height: 100vh;
+  align-self: start;
 }
 
 .left-sidebar { grid-area: left; border-right: 1px solid rgba(128,128,128,.15); }
