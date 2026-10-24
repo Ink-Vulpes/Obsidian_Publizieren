@@ -402,6 +402,22 @@ a:hover { color: var(--tertiary); text-decoration: underline; }
   padding: 0.6rem 1rem;
   margin: 0.75rem 0;
 }
+.excalidraw-embed {
+  margin: 1.25rem 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid rgba(128,128,128,.2);
+}
+.excalidraw-embed svg {
+  display: block;
+}
+.excalidraw-loading {
+  display: block;
+  padding: 2rem;
+  text-align: center;
+  color: var(--gray);
+  font-size: 0.9rem;
+}
 
 /* ── Callouts ────────────────────────────────── */
 .callout {

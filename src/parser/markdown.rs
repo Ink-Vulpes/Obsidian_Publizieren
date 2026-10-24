@@ -3,7 +3,7 @@ use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use crate::vault::Vault;
+use crate::vault::{NoteKind, Vault};
 
 static WIKILINK_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\[\[([^\]|#\n]+?)(?:#([^\]|]*))?(?:\|([^\]]*))?\]\]").unwrap()
@@ -219,6 +219,27 @@ fn preprocess_embeds(content: &str, vault: &Vault) -> String {
                     href,
                     html_escape(target)
                 );
+            }
+
+            // Excalidraw embed: render inline as SVG
+            if lower.ends_with(".excalidraw") {
+                if let Some(entry) = vault.find_by_title(target) {
+                    if entry.kind == NoteKind::Excalidraw {
+                        let file_path = vault.root.join(&entry.path);
+                        if let Ok(file_content) = std::fs::read_to_string(&file_path) {
+                            if let Some(data) = super::excalidraw::parse_excalidraw(&file_content) {
+                                if let Ok(json) = serde_json::to_string(&data) {
+                                    return format!(
+                                        "\n\n<div class=\"excalidraw-embed\" data-excalidraw='{}' title=\"{}\">\
+                                         <span class=\"excalidraw-loading\">Loading diagram…</span></div>\n\n",
+                                        json.replace('\'', "&#39;"),
+                                        html_escape(target)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             let href = vault
