@@ -15,7 +15,8 @@ static HEADING_RE: Lazy<Regex> =
 static TAG_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
 static CALLOUT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)<blockquote>\s*<p>\[!(\w+)\]([+-])?\s*(.*?)</p>(.*?)</blockquote>"#)
+    // Group 1: type  2: fold(+/-)  3: title (rest of first line)  4: body-in-first-p  5: remaining blockquote
+    Regex::new(r"(?s)<blockquote>\s*<p>\[!(\w+)\]([+-])?[ \t]*([^\n]*)\n?(.*?)</p>(.*?)</blockquote>")
         .unwrap()
 });
 // Math: $$ block first, then $ inline (order matters)
@@ -241,7 +242,16 @@ fn postprocess_callouts(html: &str) -> String {
                 .unwrap_or_default();
             let fold = caps.get(2).map(|m| m.as_str()).unwrap_or("");
             let title_text = caps.get(3).map(|m| m.as_str()).unwrap_or("");
-            let body = caps.get(4).map(|m| m.as_str()).unwrap_or("");
+            // Body = remainder of first <p> after title line + any extra blockquote content
+            let body_in_p = caps.get(4).map(|m| m.as_str()).unwrap_or("").trim();
+            let body_extra = caps.get(5).map(|m| m.as_str()).unwrap_or("").trim();
+            let body = if body_in_p.is_empty() {
+                body_extra.to_string()
+            } else if body_extra.is_empty() {
+                format!("<p>{}</p>", body_in_p)
+            } else {
+                format!("<p>{}</p>{}", body_in_p, body_extra)
+            };
 
             let display_title = if title_text.trim().is_empty() {
                 capitalize_first(&kind)
