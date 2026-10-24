@@ -13,6 +13,10 @@ pub struct ExcalidrawData {
     pub app_state: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<serde_json::Value>,
+    /// Raw lz-string base64 payload from Obsidian `compressed-json` blocks.
+    /// The client decompresses with LZString.decompressFromBase64().
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compressed: Option<String>,
 }
 
 pub fn parse_excalidraw(content: &str) -> Option<ExcalidrawData> {
@@ -30,7 +34,32 @@ pub fn parse_excalidraw(content: &str) -> Option<ExcalidrawData> {
 }
 
 fn extract_from_obsidian_md(content: &str) -> Option<ExcalidrawData> {
-    // Look for ```json ... ``` code block containing excalidraw scene
+    // 1) Obsidian Excalidraw plugin default: lz-string compressed JSON
+    //    stored in a ```compressed-json ... ``` block under "## Drawing"
+    for marker in &["```compressed-json\n", "```compressed-json\r\n"] {
+        if let Some(start) = content.find(marker) {
+            let after = &content[start + marker.len()..];
+            if let Some(end) = after.find("```") {
+                let compressed: String = after[..end]
+                    .chars()
+                    .filter(|c| !c.is_ascii_whitespace())
+                    .collect();
+                if !compressed.is_empty() {
+                    return Some(ExcalidrawData {
+                        data_type: None,
+                        version: None,
+                        source: None,
+                        elements: vec![],
+                        app_state: None,
+                        files: None,
+                        compressed: Some(compressed),
+                    });
+                }
+            }
+        }
+    }
+
+    // 2) Uncompressed JSON block
     let mut search = content;
     while let Some(start) = search.find("```json") {
         let after = &search[start + 7..];
@@ -47,7 +76,7 @@ fn extract_from_obsidian_md(content: &str) -> Option<ExcalidrawData> {
         }
     }
 
-    // Fallback: any JSON block
+    // 3) Fallback: ## Drawing section
     if let Some(start) = content.find("## Drawing\n```json") {
         let after = &content[start + 18..];
         if let Some(end) = after.find("```") {

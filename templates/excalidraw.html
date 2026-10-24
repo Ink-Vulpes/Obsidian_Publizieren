@@ -2,47 +2,78 @@
 
 {% block extra_scripts %}
 <script>
-  window.__EXCALIDRAW_DATA__ = {{ excalidraw_json | safe }};
+  window.__EXCALIDRAW_RAW__ = {{ excalidraw_json | safe }};
 </script>
+<!-- lz-string: Obsidian Excalidraw uses LZString.compressToBase64 for its compressed-json blocks -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js" crossorigin="anonymous"></script>
+<!-- React + Excalidraw UMD (exportToSvg doesn't need a DOM root, avoids UIOptions bugs) -->
 <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+(async function () {
   const container = document.getElementById('excalidraw-container');
-  if (!container) return;
+  const raw = window.__EXCALIDRAW_RAW__;
 
-  const data = window.__EXCALIDRAW_DATA__;
-  if (!data || !ExcalidrawLib) {
-    container.innerHTML = '<p class="error-msg">Could not load Excalidraw viewer.</p>';
-    return;
+  function showError(msg) {
+    container.innerHTML = '<p class="error-msg">⚠️ ' + msg + '</p>';
   }
-
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
 
   try {
-    const root = ReactDOM.createRoot(container);
-    root.render(
-      React.createElement(ExcalidrawLib.Excalidraw, {
-        initialData: {
-          elements: data.elements || [],
-          appState: {
-            ...(data.appState || {}),
-            theme: isDark ? 'dark' : 'light',
-            viewBackgroundColor: isDark ? '#1c1c1e' : '#faf8f8',
-          },
-          files: data.files || {},
-        },
-        viewModeEnabled: true,
-        zenModeEnabled: false,
-        gridModeEnabled: false,
-        UIOptions: { canvasActions: { export: true, loadScene: false } },
-      })
-    );
-  } catch (err) {
-    container.innerHTML = '<p class="error-msg">Excalidraw render error: ' + err.message + '</p>';
+    // ── 1. Resolve data (decompress if needed) ────────────────────────────
+    let data = raw;
+
+    if (raw.compressed) {
+      if (typeof LZString === 'undefined') {
+        showError('lz-string library failed to load.');
+        return;
+      }
+      const json = LZString.decompressFromBase64(raw.compressed);
+      if (!json) { showError('Could not decompress drawing data.'); return; }
+      data = JSON.parse(json);
+    }
+
+    if (!data.elements || data.elements.length === 0) {
+      showError('No drawable elements found in this file.');
+      return;
+    }
+
+    // ── 2. Render to SVG ──────────────────────────────────────────────────
+    if (typeof ExcalidrawLib === 'undefined' || !ExcalidrawLib.exportToSvg) {
+      showError('Excalidraw library not loaded.');
+      return;
+    }
+
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+    const svg = await ExcalidrawLib.exportToSvg({
+      elements: data.elements,
+      appState: {
+        ...(data.appState || {}),
+        exportWithDarkMode: isDark,
+        exportBackground: true,
+        viewBackgroundColor: isDark ? '#1c1c1e' : '#ffffff',
+        theme: isDark ? 'dark' : 'light',
+      },
+      files: data.files || null,
+    });
+
+    // Remove dark-mode invert filter — we always render in light mode for the page
+    svg.removeAttribute('filter');
+    // Fix background rect color to white
+    const bgRect = svg.querySelector('rect:first-of-type');
+    if (bgRect) bgRect.setAttribute('fill', '#ffffff');
+    // Fix text that may have been set to very dark (near-invisible on dark bg) — keep as is,
+    // since dark text (#1e1e1e) is correct for a white background.
+    svg.style.cssText = 'width:100%;height:auto;max-height:75vh;display:block;border-radius:6px';
+    container.innerHTML = '';
+    container.appendChild(svg);
+
+  } catch (e) {
+    showError('Render error: ' + e.message);
+    console.error('Excalidraw render error', e);
   }
-});
+})();
 </script>
 {% endblock %}
 
@@ -52,6 +83,8 @@ document.addEventListener('DOMContentLoaded', function() {
     <span class="badge badge-excalidraw">Excalidraw</span>
     <h1 class="note-title">{{ page_title }}</h1>
   </header>
-  <div id="excalidraw-container" class="excalidraw-container"></div>
+  <div id="excalidraw-container" class="excalidraw-container" style="min-height:200px;display:flex;align-items:center;justify-content:center">
+    <span style="color:var(--gray);font-size:0.9rem">Loading diagram…</span>
+  </div>
 </article>
 {% endblock %}
