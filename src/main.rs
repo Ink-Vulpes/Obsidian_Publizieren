@@ -1,4 +1,4 @@
-use axum::{middleware, routing::{delete, get, post}, Router};
+use axum::{extract::DefaultBodyLimit, middleware, routing::{delete, get, post}, Router};
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use tokio::sync::RwLock as AsyncRwLock;
@@ -97,7 +97,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/files", get(routes::api::file_list))
         .route("/api/reload", get(routes::api::reload_vault))
         .route("/api/files/manifest", get(routes::api::file_manifest))
-        .route("/api/upload", post(routes::api::upload_files))
+        .route("/api/upload", post(routes::api::upload_files)
+            .layer(DefaultBodyLimit::max(500 * 1024 * 1024)))
         .route("/api/files/delete", delete(routes::api::delete_file))
         .route("/admin", get(routes::admin::admin_page))
         .route("/admin/invite", post(routes::admin::create_invite))
