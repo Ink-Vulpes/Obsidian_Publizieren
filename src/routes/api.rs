@@ -312,11 +312,29 @@ pub async fn upload_files(
                 errors.push(format!("{}: mkdir error: {}", rel_path, e));
                 continue;
             }
+            // Ensure parent directories are traversable (fixes vsftpd-created dirs with 700)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755));
+            }
+        }
+
+        // If a previous upload (e.g. via vsftpd) left a file with restrictive permissions,
+        // remove it first so we can replace it.
+        if target.exists() {
+            let _ = std::fs::remove_file(&target);
         }
 
         if let Err(e) = std::fs::write(&target, &data) {
             errors.push(format!("{}: write error: {}", rel_path, e));
         } else {
+            // Ensure file is readable by the web server (fixes umask / vsftpd chmod 700)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644));
+            }
             uploaded += 1;
         }
     }
