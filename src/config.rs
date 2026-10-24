@@ -36,15 +36,9 @@ pub struct AdminConfig {
 
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
-        let path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "/config/config.yml".to_string());
+        let path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.yml".to_string());
 
-        // Try YAML config file first
         if let Ok(content) = std::fs::read_to_string(&path) {
-            return Ok(serde_yaml::from_str(&content)?);
-        }
-
-        // Fallback: try ./config.yml (local dev)
-        if let Ok(content) = std::fs::read_to_string("config.yml") {
             return Ok(serde_yaml::from_str(&content)?);
         }
 

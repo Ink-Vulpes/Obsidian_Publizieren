@@ -2,4 +2,4 @@
 .env
 vault/
 *.excalidraw
-config/config.yml
+config.yml

@@ -30,9 +30,8 @@ services:
     volumes:
       - vault-data:/vault
       - ./static:/app/static:ro
-      - ./config:/config:ro
+      - ./config.yml:/app/config.yml:ro
     environment:
-      CONFIG_PATH: /config/config.yml
       RUST_LOG: "${RUST_LOG:-info}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]

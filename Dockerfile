@@ -38,7 +38,7 @@ USER appuser
 
 EXPOSE 3000
 
-ENV CONFIG_PATH=/config/config.yml \
+ENV CONFIG_PATH=/app/config.yml \
     RUST_LOG=info
 
 CMD ["/app/obsidian-publisher"]

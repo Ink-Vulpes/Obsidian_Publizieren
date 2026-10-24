@@ -41,10 +41,10 @@ cd obsidian-publisher
 ### 2. Konfiguration anlegen
 
 ```bash
-cp config.yml.example config/config.yml
+cp config.yml.example config.yml
 ```
 
-Wichtige Einstellungen in `config/config.yml`:
+Wichtige Einstellungen in `config.yml`:
 
 ```yaml
 server:
@@ -298,13 +298,13 @@ obsidian-publisher/
 # Abhängigkeiten: Rust ≥ 1.89 (rustup), eine laufende MySQL-Instanz
 
 # Konfiguration anpassen
-cp config.yml.example config/config.yml   # DATABASE_URL etc. setzen
+cp config.yml.example config.yml   # DATABASE_URL etc. setzen
 
-# Server starten
-CONFIG_PATH=config/config.yml cargo run
+# Server starten (liest config.yml automatisch)
+cargo run
 
 # Mit Debug-Logging
-CONFIG_PATH=config/config.yml RUST_LOG=debug cargo run
+RUST_LOG=debug cargo run
 ```
 
 Server startet auf http://localhost:3000.  
