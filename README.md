@@ -1,6 +1,6 @@
 # Obsidian Publisher
 
-Ein selbst gehosteter Web-Server, der eine Obsidian-Vault live im Browser rendert – ähnlich wie [Quartz](https://quartz.jzhao.xyz/), aber vollständig in Rust geschrieben und per FTP bespielbar.
+Ein selbst gehosteter Web-Server, der eine Obsidian-Vault live im Browser rendert – ähnlich wie [Quartz](https://quartz.jzhao.xyz/), aber vollständig in Rust geschrieben mit MySQL-Authentifizierung und HTTP-Upload.
 
 ![Layout](https://img.shields.io/badge/layout-3--column-blue) ![Rust](https://img.shields.io/badge/built_with-Rust-orange) ![Docker](https://img.shields.io/badge/deploy-Docker-blue)
 
@@ -19,7 +19,8 @@ Ein selbst gehosteter Web-Server, der eine Obsidian-Vault live im Browser render
 - **Callouts** (`> [!info]`, `> [!warning]` usw.) in Obsidian-Stil
 - **Canvas** (`.canvas`) und **Excalidraw** (`.excalidraw` / Plugin-Markdown) werden gerendert
 - **Tags**, **Inhaltsverzeichnis**, **Anker-Links** an Überschriften
-- **FTP-Upload** via `publish.py` – nur Notes mit `Publiziert: true` im Frontmatter werden hochgeladen, inklusive eingebetteter Assets
+- **Authentifizierung** – Login, Einladungslinks, Rollen und Berechtigungen per Admin-Panel
+- **HTTP-Upload** via `publish.py` – Checksummen-basierter Sync (SHA-256), kein FTP nötig
 
 ---
 
@@ -37,22 +38,43 @@ git clone <repo-url>
 cd obsidian-publisher
 ```
 
-### 2. Umgebungsvariablen konfigurieren
+### 2. Konfiguration anlegen
 
 ```bash
-cp .env.example .env   # oder .env direkt bearbeiten
+cp config.yml.example config/config.yml
 ```
 
-Wichtige Einstellungen in `.env`:
+Wichtige Einstellungen in `config/config.yml`:
+
+```yaml
+server:
+  port: 3000
+  vault_path: "/vault"
+  site_title: "Mein Digital Garden"
+  base_url: "http://localhost:3000"
+
+database:
+  url: "mysql://obsidian:changeme@mysql:3306/obsidian"
+
+auth:
+  session_secret: "MINDESTENS_64_ZUFAELLIGE_ZEICHEN_HIER_EINTRAGEN!!!"
+  session_duration_hours: 168
+
+admin:
+  username: "admin"
+  password: "changeme"   # beim ersten Start geändert werden!
+```
+
+Optionale Anpassungen per `.env`-Datei im Projekt-Wurzelverzeichnis:
 
 ```env
-SITE_TITLE=Mein Digital Garden
-SITE_DESCRIPTION=Meine vernetzten Notizen
-BASE_URL=http://localhost:3000
-
+WEB_PORT=3000
 FTP_USER=obsidian
 FTP_PASS=sicheres-passwort
-PASV_ADDRESS=127.0.0.1   # öffentliche IP für externen Zugriff
+PASV_ADDRESS=127.0.0.1
+MYSQL_ROOT_PASSWORD=sicheres-root-passwort
+MYSQL_PASS=sicheres-db-passwort
+RUST_LOG=info
 ```
 
 ### 3. Container starten
@@ -61,59 +83,103 @@ PASV_ADDRESS=127.0.0.1   # öffentliche IP für externen Zugriff
 docker compose up -d
 ```
 
-Der Web-Server läuft auf **http://localhost:3000**.  
-Der FTP-Server lauscht auf **Port 21** (Daten: 21100–21110).
+Der Web-Server läuft auf **http://localhost:3000**.
 
-### 4. Notes hochladen
+Beim ersten Start:
+1. Die Datenbank-Migrationen werden automatisch ausgeführt.
+2. Der Admin-Benutzer (aus `config.yml`) wird angelegt, sofern noch kein Benutzer existiert.
+3. Der Vault wird indiziert.
+
+### 4. Admin-Panel
+
+Unter **http://localhost:3000/admin** (nach Login) können:
+
+- **Benutzer** verwaltet und Einladungslinks (48h gültig) erstellt werden
+- **Berechtigungen** je Nutzer gesetzt werden (Upload, Nutzerverwaltung, Listen)
+- **Whitelist / Blacklist** für Notes gepflegt werden
+
+### 5. Notes hochladen
 
 ```bash
-python publish.py /pfad/zur/obsidian-vault
+python publish.py --vault /pfad/zur/obsidian-vault
 ```
 
+Optionen:
+
+| Flag | Beschreibung |
+|------|-------------|
+| `--vault PFAD` | Pfad zum Obsidian-Vault (auch als erstes positionelles Argument) |
+| `--server URL` | Server-URL (Standard: `http://localhost:3000`) |
+| `--user NAME` | Benutzername (wird sonst interaktiv abgefragt) |
+| `--yes` / `-y` | Alle Änderungen ohne Rückfrage synchronisieren |
+
 Das Script:
-1. Findet alle `.md`-Dateien mit `Publiziert: true` im Frontmatter
-2. Sammelt eingebettete Bilder, PDFs und andere Assets
-3. Wendet `whitelist.json` / `blacklist.json` an
-4. Lädt alles per FTP hoch
-5. Ruft `/api/reload` auf – der Server indiziert sofort neu
+1. Meldet sich per Bearer-Token an (`/api/auth/token`)
+2. Lädt das Server-Manifest (`/api/files/manifest`) mit SHA-256-Checksummen
+3. Scannt den lokalen Vault und berechnet lokale Checksummen
+4. Zeigt neue / geänderte / gelöschte Dateien an
+5. Lädt ausgewählte Dateien per `multipart/form-data` hoch
+6. Löscht entfernte Dateien auf dem Server
+7. Ruft `/api/reload` auf – der Server indiziert sofort neu
+
+> **Hinweis (Windows / PowerShell):** Wenn der Vault-Pfad mit `\` endet, kommt es zu einem Escaping-Problem. Entweder den Pfad ohne abschließenden Backslash angeben oder Anführungszeichen weglassen:
+> ```powershell
+> python publish.py --vault "D:\My Second Brain"
+> ```
 
 ---
 
 ## Konfiguration
 
-### Umgebungsvariablen (vollständig)
+### config.yml (vollständig)
 
-| Variable           | Standard              | Beschreibung                          |
-|--------------------|-----------------------|---------------------------------------|
-| `VAULT_PATH`       | `/vault`              | Pfad zur Vault im Container           |
-| `WEB_PORT`         | `3000`                | HTTP-Port des Web-Servers             |
-| `SITE_TITLE`       | `My Digital Garden`   | Seitentitel                           |
-| `SITE_DESCRIPTION` | *(leer)*              | Meta-Description                      |
-| `BASE_URL`         | `http://localhost:3000` | Öffentliche URL                     |
-| `FTP_USER`         | `obsidian`            | FTP-Benutzername                      |
-| `FTP_PASS`         | `changeme`            | FTP-Passwort                          |
-| `PASV_ADDRESS`     | `127.0.0.1`           | IP für FTP-Passiv-Modus               |
-| `FTP_HOST`         | `localhost`           | FTP-Host (für `publish.py`)           |
-| `FTP_PORT`         | `21`                  | FTP-Port (für `publish.py`)           |
-| `RUST_LOG`         | `info`                | Log-Level (`debug`, `info`, `warn`)   |
+```yaml
+server:
+  port: 3000
+  vault_path: "/vault"
+  site_title: "My Digital Garden"
+  site_description: "A collection of interconnected notes"
+  base_url: "http://localhost:3000"
 
-### whitelist.json / blacklist.json
+database:
+  url: "mysql://obsidian:changeme@mysql:3306/obsidian"
 
-Glob-Muster relativ zur Vault-Wurzel:
+auth:
+  session_secret: "64+ Zeichen langer Zufallsstring"
+  session_duration_hours: 168   # 7 Tage
 
-```json
-["Templates/**", "Assets/logo.png", "**/*.png"]
+admin:
+  username: "admin"
+  password: "changeme"
 ```
 
-| Muster            | Bedeutung                              |
-|-------------------|----------------------------------------|
-| `Ordner/**`       | Alles in `Ordner/` (beliebige Tiefe)   |
-| `**/*.pdf`        | Alle PDF-Dateien überall              |
-| `Notes/Artikel.md`| Exakt diese Datei                     |
-| `*.md`            | Nur `.md` im Vault-Wurzelverzeichnis  |
+### .env (Docker-Variablen)
 
-**Whitelist**: Dateien werden hochgeladen, auch ohne `Publiziert: true`.  
-**Blacklist**: Dateien werden niemals hochgeladen (auch wenn published).
+| Variable               | Standard          | Beschreibung                          |
+|------------------------|-------------------|---------------------------------------|
+| `WEB_PORT`             | `3000`            | HTTP-Port des Web-Servers             |
+| `FTP_USER`             | `obsidian`        | FTP-Benutzername (vsftpd)             |
+| `FTP_PASS`             | `changeme`        | FTP-Passwort (vsftpd)                 |
+| `PASV_ADDRESS`         | `127.0.0.1`       | IP für FTP-Passiv-Modus               |
+| `MYSQL_ROOT_PASSWORD`  | `rootchangeme`    | MySQL-Root-Passwort                   |
+| `MYSQL_PASS`           | `changeme`        | MySQL-Passwort für den App-Benutzer   |
+| `RUST_LOG`             | `info`            | Log-Level (`debug`, `info`, `warn`)   |
+
+---
+
+## Benutzer & Berechtigungen
+
+Das System unterstützt mehrere Benutzer mit feingranularen Rechten:
+
+| Berechtigung         | Beschreibung                                    |
+|----------------------|-------------------------------------------------|
+| `is_admin`           | Vollzugriff, kann Nutzer löschen                |
+| `can_upload`         | Darf Dateien per API hochladen                  |
+| `can_manage_users`   | Kann Nutzer einladen und Rechte bearbeiten      |
+| `can_manage_lists`   | Kann Whitelist / Blacklist bearbeiten           |
+| `folder_restriction` | Beschränkt Upload auf bestimmte Ordner          |
+
+Neue Benutzer werden per **Einladungslink** (48h gültig) registriert. Der Link wird im Admin-Panel unter „Einladungslink erstellen" generiert.
 
 ---
 
@@ -124,16 +190,16 @@ Glob-Muster relativ zur Vault-Wurzel:
 title: Mein Artikel
 description: Eine kurze Zusammenfassung
 tags: [biologie, abitur]
-Publiziert: true
 ---
 ```
 
-| Feld           | Bedeutung                                      |
-|----------------|------------------------------------------------|
-| `title`        | Angezeigter Titel (sonst Dateiname)            |
-| `description`  | Meta-Description und Vorschautext              |
-| `tags`         | Tag-Liste (Array oder YAML-Liste)              |
-| `Publiziert`   | `true` → wird von `publish.py` hochgeladen     |
+| Feld          | Bedeutung                                      |
+|---------------|------------------------------------------------|
+| `title`       | Angezeigter Titel (sonst Dateiname)            |
+| `description` | Meta-Description und Vorschautext              |
+| `tags`        | Tag-Liste (Array oder YAML-Liste)              |
+
+> Das Feld `Publiziert: true` aus früheren Versionen wird nicht mehr ausgewertet. `publish.py` lädt alle Dateien des Vaults hoch (außer versteckten Verzeichnissen); Sichtbarkeit wird über Whitelist/Blacklist im Admin-Panel gesteuert.
 
 ---
 
@@ -154,38 +220,74 @@ MathJax 3.2.2 rendert die Formeln im Browser.
 
 ---
 
+## API-Endpunkte
+
+### Öffentlich
+
+| Endpunkt              | Beschreibung                                        |
+|-----------------------|-----------------------------------------------------|
+| `GET /`               | Startseite (Vault-Übersicht)                        |
+| `GET /note/:slug`     | Note rendern (Slug = Vault-Pfad ohne Erweiterung)   |
+| `GET /api/search?q=`  | Volltextsuche, gibt JSON zurück                     |
+| `GET /api/graph`      | Graph-Daten (Nodes + Links) als JSON                |
+| `GET /vault-assets/`  | Statische Vault-Assets (Bilder, PDFs, …)            |
+| `GET /static/`        | CSS, JS, Fonts                                      |
+| `POST /api/auth/token`| Bearer-Token per Benutzername + Passwort            |
+
+### Authentifiziert (Session-Cookie oder Bearer-Token)
+
+| Endpunkt                    | Beschreibung                              |
+|-----------------------------|-------------------------------------------|
+| `GET /api/reload`           | Vault neu indizieren                      |
+| `GET /api/files/manifest`   | Dateiliste mit SHA-256-Checksummen        |
+| `POST /api/upload`          | Datei hochladen (multipart/form-data)     |
+| `DELETE /api/files/delete`  | Datei löschen (`?path=relativer/pfad`)    |
+| `GET /admin`                | Admin-Panel (benötigt Admin-Berechtigung) |
+
+---
+
 ## Projektstruktur
 
 ```
 obsidian-publisher/
 ├── src/
 │   ├── main.rs              # Axum-Server, Routen, Vault-State
-│   ├── config.rs            # Konfiguration aus Umgebungsvariablen
+│   ├── auth.rs              # Session-Middleware, CurrentUser, Berechtigungen
+│   ├── config.rs            # Konfiguration aus config.yml
+│   ├── db.rs                # MySQL-Verbindung via sqlx
 │   ├── vault.rs             # Vault-Indizierung, Wikilink-Auflösung
 │   ├── parser/
 │   │   ├── markdown.rs      # Markdown → HTML (comrak + MathJax-Schutz)
 │   │   ├── canvas.rs        # Obsidian-Canvas-Renderer
 │   │   └── excalidraw.rs    # Excalidraw-Renderer
-│   └── routes/
-│       ├── note.rs          # GET /note/:slug
-│       ├── api.rs           # GET /api/reload, /api/search, /api/graph
-│       └── mod.rs
+│   ├── routes/
+│   │   ├── note.rs          # GET /note/:slug
+│   │   ├── api.rs           # /api/reload, /api/search, /api/graph, Upload, Manifest
+│   │   ├── auth.rs          # Login, Logout, Register, Token-Endpunkt
+│   │   ├── admin.rs         # Admin-Panel, Nutzerverwaltung, White-/Blacklist
+│   │   └── mod.rs
+│   └── bin/
+│       └── uploader.rs      # Lokale Uploader-UI (obsidian-uploader Binary)
 ├── templates/
 │   ├── base.html            # Layout mit Sidebar, MathJax, D3
 │   ├── note.html            # Note-Ansicht
 │   ├── index.html           # Startseite
 │   ├── canvas.html          # Canvas-Ansicht
-│   └── excalidraw.html      # Excalidraw-Ansicht
+│   ├── excalidraw.html      # Excalidraw-Ansicht
+│   ├── login.html           # Login-Seite
+│   ├── register.html        # Registrierungs-Seite (Einladungslink)
+│   └── admin.html           # Admin-Panel
 ├── static/
 │   ├── css/style.css        # Quartz-inspiriertes Design
 │   ├── js/app.js            # Explorer, Dark Mode, Callouts
 │   ├── js/search.js         # Volltextsuche
 │   └── js/graph.js          # D3-Graphen
-├── Dockerfile               # Multi-Stage: rust:1.88-slim → debian:bookworm-slim
-├── docker-compose.yml       # Web-Server + vsftpd
-├── publish.py               # Upload-Script
-├── whitelist.json           # Glob-Muster für Force-Include
-└── blacklist.json           # Glob-Muster für Force-Exclude
+├── migrations/              # SQL-Migrationen (sqlx)
+├── config/
+│   └── config.yml           # Serverkonfiguration (nicht im Repo)
+├── Dockerfile               # Multi-Stage: rust:1.89-slim → debian:bookworm-slim
+├── docker-compose.yml       # Web-Server + MySQL + vsftpd
+└── publish.py               # Upload-Script (HTTP API, kein FTP)
 ```
 
 ---
@@ -193,45 +295,34 @@ obsidian-publisher/
 ## Lokale Entwicklung (ohne Docker)
 
 ```bash
-# Abhängigkeiten: Rust (rustup), cargo
+# Abhängigkeiten: Rust ≥ 1.89 (rustup), eine laufende MySQL-Instanz
 
-# Vault-Pfad setzen und Server starten
-VAULT_PATH=/pfad/zur/vault cargo run
+# Konfiguration anpassen
+cp config.yml.example config/config.yml   # DATABASE_URL etc. setzen
 
-# Mit allen Optionen
-VAULT_PATH=/pfad/zur/vault \
-SITE_TITLE="Mein Garden" \
-RUST_LOG=debug \
-cargo run
+# Server starten
+CONFIG_PATH=config/config.yml cargo run
+
+# Mit Debug-Logging
+CONFIG_PATH=config/config.yml RUST_LOG=debug cargo run
 ```
 
 Server startet auf http://localhost:3000.  
-Nach Dateiänderungen in der Vault: http://localhost:3000/api/reload aufrufen.
-
----
-
-## API-Endpunkte
-
-| Endpunkt            | Beschreibung                                        |
-|---------------------|-----------------------------------------------------|
-| `GET /`             | Startseite (Vault-Übersicht)                       |
-| `GET /note/:slug`   | Note rendern (Slug = Vault-Pfad ohne Erweiterung)  |
-| `GET /api/reload`   | Vault neu indizieren                               |
-| `GET /api/search?q=`| Volltextsuche, gibt JSON zurück                    |
-| `GET /api/graph`    | Graph-Daten (Nodes + Links) als JSON               |
-| `GET /vault-assets/`| Statische Vault-Assets (Bilder, PDFs, …)           |
-| `GET /static/`      | CSS, JS, Fonts                                     |
+Nach Dateiänderungen in der Vault: `GET /api/reload` aufrufen oder `publish.py` verwenden.
 
 ---
 
 ## Technologie-Stack
 
-| Komponente    | Technologie                              |
-|---------------|------------------------------------------|
-| Web-Server    | Rust · [Axum](https://github.com/tokio-rs/axum) 0.7 |
-| Templates     | [Tera](https://keats.github.io/tera/) (Jinja2-kompatibel) |
-| Markdown      | [comrak](https://github.com/kivikakk/comrak) 0.21 (CommonMark + GFM) |
-| Math          | [MathJax](https://www.mathjax.org/) 3.2.2 |
-| Graph         | [D3.js](https://d3js.org/) 7.9           |
-| FTP-Server    | vsftpd (im Docker-Container)             |
-| Upload-Script | Python 3 (nur `ftplib`, keine externen Deps) |
+| Komponente     | Technologie                              |
+|----------------|------------------------------------------|
+| Web-Server     | Rust · [Axum](https://github.com/tokio-rs/axum) 0.7 |
+| Templates      | [Tera](https://keats.github.io/tera/) (Jinja2-kompatibel) |
+| Markdown       | [comrak](https://github.com/kivikakk/comrak) (CommonMark + GFM) |
+| Math           | [MathJax](https://www.mathjax.org/) 3.2.2 |
+| Graph          | [D3.js](https://d3js.org/) 7.9           |
+| Datenbank      | MySQL 8 via [sqlx](https://github.com/launchbadge/sqlx) |
+| Passwort-Hashing | [bcrypt](https://docs.rs/bcrypt/)      |
+| Sessions       | HTTP-only Cookies (AES-GCM verschlüsselt) |
+| FTP-Server     | vsftpd (optional, im Docker-Container)   |
+| Upload-Script  | Python 3 (nur Standardbibliothek)        |
