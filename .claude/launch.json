@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "obsidian-publisher",
+      "runtimeExecutable": "D:\\Dev\\Obsidian_Publizieren\\target\\release\\obsidian-publisher.exe",
+      "runtimeArgs": [],
+      "port": 3000,
+      "env": {
+        "VAULT_PATH": "D:\\Dev\\Obsidian_Publizieren\\vault",
+        "SITE_TITLE": "My Digital Garden",
+        "RUST_LOG": "info"
+      }
+    }
+  ]
+}
