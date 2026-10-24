@@ -1,336 +1,335 @@
 #!/usr/bin/env python3
 """
-Obsidian Publisher Upload Script
+Obsidian Publisher – Upload-Skript
+===================================
+Vergleicht den lokalen Vault mit dem Server, zeigt neue / geänderte / gelöschte
+Notizen und lädt die ausgewählten Dateien hoch.
 
-Reads the vault, finds all notes with `Publiziert: true` in their frontmatter,
-collects embedded assets, applies whitelist/blacklist rules, and uploads
-everything to the configured FTP server.
+Verwendung:
+    python publish.py --vault C:/Users/mich/Obsidian/MeinVault
+    python publish.py --vault /vault --server https://notes.example.com
+    python publish.py /pfad/zum/vault           # positionales Argument auch OK
 
-Usage:
-    python publish.py <vault_path>
-    python publish.py C:/Users/me/Documents/MyVault
-
-Environment variables (all optional, defaults shown):
-    FTP_HOST     FTP server hostname / IP              (localhost)
-    FTP_PORT     FTP server port                       (21)
-    FTP_USER     FTP username                          (obsidian)
-    FTP_PASS     FTP password                          (obsidian)
-
-whitelist.json / blacklist.json support glob patterns relative to vault root:
-    "Notes/Artikel.md"      -- exact file
-    "Assets/**"             -- everything inside Assets/
-    "**/*.png"              -- all PNG files anywhere in the vault
-    "Private/**"            -- entire Private/ folder (blacklist)
+Optionen:
+    --vault   Pfad zum lokalen Obsidian-Vault (oder als erstes posit. Argument)
+    --server  Server-URL (Standard: http://localhost:3000)
+    --user    Benutzername (wird sonst interaktiv abgefragt)
+    --yes     Alle Änderungen ohne Rückfrage synchronisieren
 """
 
 import argparse
-import fnmatch
-import ftplib
+import getpass
+import hashlib
 import json
 import os
-import re
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
 
-def _load_dotenv(path: Path) -> None:
-    """Load a .env file into os.environ (no external dependencies)."""
-    if not path.exists():
-        return
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, val = line.partition("=")
-            key = key.strip()
-            val = val.strip().strip('"').strip("'")
-            os.environ.setdefault(key, val)
+# ── Argumente ─────────────────────────────────────────────────────────────────
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Obsidian-Notizen mit dem Server synchronisieren."
+    )
+    p.add_argument(
+        "vault_path",
+        nargs="?",
+        help="Pfad zum Obsidian-Vault (positionales Argument, alternativ zu --vault)",
+    )
+    p.add_argument("--vault",  metavar="PFAD", help="Pfad zum Obsidian-Vault")
+    p.add_argument("--server", metavar="URL",  default=None,
+                   help="Server-URL (Standard: http://localhost:3000)")
+    p.add_argument("--user",   metavar="NAME", default=None,
+                   help="Benutzername (wird sonst abgefragt)")
+    p.add_argument("--yes", "-y", action="store_true",
+                   help="Alle Änderungen ohne Rückfrage synchronisieren")
+    return p.parse_args()
 
 
-_load_dotenv(Path(__file__).parent / ".env")
+# ── SHA-256 ────────────────────────────────────────────────────────────────────
 
-# ── CONFIG (override via .env or environment variables) ───────────────────────
-FTP_HOST  = os.environ.get("FTP_HOST",  "localhost")
-FTP_PORT  = int(os.environ.get("FTP_PORT", "21"))
-FTP_USER  = os.environ.get("FTP_USER",  "obsidian")
-FTP_PASS  = os.environ.get("FTP_PASS",  "obsidian")
-WEB_URL   = os.environ.get("BASE_URL",  "http://localhost:3000")
-
-SCRIPT_DIR     = Path(__file__).parent
-WHITELIST_FILE = SCRIPT_DIR / "whitelist.json"
-BLACKLIST_FILE = SCRIPT_DIR / "blacklist.json"
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Obsidian wiki-embed:       ![[file.png]]  or  ![[file.png|alias]]
-_WIKI_EMBED_RE  = re.compile(r'!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]')
-# Standard markdown image:   ![alt](path)
-_MD_IMAGE_RE    = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
-# Obsidian wiki-link to PDF: [[doc.pdf]]  or  [[doc.pdf|alias]]
-_WIKI_PDF_RE    = re.compile(r'(?<!!)\[\[([^\]|]+\.pdf)(?:\|[^\]]*)?\]\]', re.IGNORECASE)
-# Markdown link to local PDF: [text](doc.pdf)
-_MD_PDF_RE      = re.compile(r'(?<!!)\[[^\]]*\]\(([^)]+\.pdf)\)', re.IGNORECASE)
-# YAML frontmatter block
-_FRONTMATTER_RE = re.compile(r'^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n', re.DOTALL)
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
-def load_list(path: Path) -> list[str]:
-    """Load a JSON array of strings from a file; return [] if missing."""
-    if not path.exists():
-        return []
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, list):
-        print(f"[warn] {path.name} is not a JSON array – ignored")
-        return []
-    return [str(e).replace("\\", "/") for e in data]
+# ── Vault scannen ──────────────────────────────────────────────────────────────
 
-
-def path_matches(rel_str: str, pattern: str) -> bool:
-    """
-    Test whether a vault-relative path matches a glob pattern.
-
-    Supports:
-        exact/path/file.md    – literal match
-        folder/**             – everything inside folder/ (any depth)
-        **/*.png              – all .png files anywhere
-        *.md                  – .md files in vault root only
-    """
-    rel = rel_str.replace("\\", "/")
-    pat = pattern.replace("\\", "/")
-
-    if "**" not in pat:
-        return fnmatch.fnmatch(rel, pat)
-
-    # Convert ** glob to a regex so fnmatch semantics extend across /
-    import re as _re
-    parts = pat.split("**")
-    regex = ".*".join(_re.escape(p).replace(r"\*", "[^/]*") for p in parts)
-    return bool(_re.fullmatch(regex, rel))
-
-
-def expand_whitelist(vault: Path, patterns: list[str]) -> list[Path]:
-    """Expand whitelist patterns to actual file paths using vault glob."""
-    result: list[Path] = []
-    for pattern in patterns:
-        matches = [p for p in vault.glob(pattern) if p.is_file()]
-        if not matches:
-            print(f"  [warn/whitelist]  no files matched: {pattern}")
-        result.extend(matches)
+def scan_vault(vault: Path) -> dict[str, dict]:
+    """Gibt {rel_pfad: {checksum, size}} für alle nicht-versteckten Dateien zurück."""
+    result = {}
+    for p in vault.rglob("*"):
+        if not p.is_file():
+            continue
+        parts = p.relative_to(vault).parts
+        if any(part.startswith(".") for part in parts):
+            continue
+        rel = "/".join(parts)
+        try:
+            result[rel] = {"checksum": sha256(p), "size": p.stat().st_size, "path": p}
+        except OSError:
+            pass
     return result
 
 
-def is_published(content: str) -> bool:
-    """Return True when the frontmatter contains `Publiziert: true`."""
-    m = _FRONTMATTER_RE.match(content)
-    if not m:
-        return False
-    for line in m.group(1).splitlines():
-        if ":" not in line:
-            continue
-        key, _, val = line.partition(":")
-        if key.strip().lower() == "publiziert":
-            return val.strip().lower() in ("true", "yes", "1", "ja")
-    return False
+# ── HTTP-Hilfsfunktionen ───────────────────────────────────────────────────────
+
+def api_get(server: str, path: str, token: str) -> list | dict:
+    url = f"{server.rstrip('/')}{path}"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
 
 
-def find_asset(name: str, vault: Path) -> Optional[Path]:
-    """
-    Locate an embedded asset inside the vault.
-    Tries the exact relative path first, then a vault-wide name search.
-    """
-    # Strip any query string / anchor that editors sometimes append
-    name = name.split("?")[0].split("#")[0].strip()
-
-    direct = vault / name
-    if direct.exists():
-        return direct
-
-    filename = Path(name).name
-    for p in vault.rglob(filename):
-        # Skip hidden directories (.obsidian, .git, …)
-        if any(part.startswith(".") for part in p.relative_to(vault).parts):
-            continue
-        return p
-    return None
-
-
-def embedded_assets(content: str, vault: Path) -> list[Path]:
-    """Collect all locally embedded/linked asset paths mentioned in *content*."""
-    found: list[Path] = []
-
-    def _add(target: str) -> None:
-        target = target.strip()
-        if target.startswith(("http://", "https://", "data:")):
-            return
-        asset = find_asset(target, vault)
-        if asset:
-            found.append(asset)
-
-    # ![[image.png]] / ![[doc.pdf]] — Obsidian embeds (images, PDFs, …)
-    for m in _WIKI_EMBED_RE.finditer(content):
-        _add(m.group(1).split("|")[0])
-
-    # ![alt](image.png) / ![](doc.pdf) — markdown embeds
-    for m in _MD_IMAGE_RE.finditer(content):
-        _add(m.group(1))
-
-    # [[doc.pdf]] — Obsidian wiki-link to PDF (non-embed)
-    for m in _WIKI_PDF_RE.finditer(content):
-        _add(m.group(1).split("|")[0])
-
-    # [Text](doc.pdf) — markdown link to local PDF
-    for m in _MD_PDF_RE.finditer(content):
-        _add(m.group(1))
-
-    return found
-
-
-def collect(vault: Path, whitelist: list[str], blacklist: list[str]) -> list[Path]:
-    """
-    Walk the vault, pick up published notes + their assets,
-    apply whitelist / blacklist, return a de-duplicated list.
-    """
-    vault_abs = vault.resolve()
-    upload:   list[Path] = []
-    seen:     set[Path]  = set()
-
-    def is_blacklisted(rel_str: str) -> bool:
-        return any(path_matches(rel_str, pat) for pat in blacklist)
-
-    def enqueue(p: Path, reason: str = "") -> bool:
-        p = p.resolve()
-        if p in seen:
-            return False
-        try:
-            rel = p.relative_to(vault_abs)
-        except ValueError:
-            print(f"  [skip/outside-vault] {p}")
-            return False
-        rel_str = str(rel).replace("\\", "/")
-        if is_blacklisted(rel_str):
-            print(f"  [skip/blacklist]  {rel_str}")
-            return False
-        seen.add(p)
-        upload.append(p)
-        tag = f"[{reason}]" if reason else ""
-        print(f"  {tag:<18} {rel_str}")
-        return True
-
-    print("Scanning vault for published notes …\n")
-
-    for md in sorted(vault.rglob("*.md")):
-        # Skip hidden dirs (.obsidian, .trash, …)
-        if any(part.startswith(".") for part in md.relative_to(vault).parts):
-            continue
-        content = md.read_text(encoding="utf-8", errors="replace")
-        if not is_published(content):
-            continue
-        if enqueue(md, "published"):
-            for asset in embedded_assets(content, vault):
-                enqueue(asset, "asset")
-
-    # Whitelist: force-include regardless of Publiziert flag
-    for p in expand_whitelist(vault, whitelist):
-        enqueue(p, "whitelist")
-
-    return upload
-
-
-# ── FTP helpers ────────────────────────────────────────────────────────────────
-
-def ftp_mkdirs(ftp: ftplib.FTP, remote_dir: str) -> None:
-    """Recursively create directories on the FTP server (silently skip existing)."""
-    parts = [p for p in remote_dir.replace("\\", "/").split("/") if p and p != "."]
-    current = ""
-    for part in parts:
-        current = f"{current}/{part}" if current else part
-        try:
-            ftp.mkd(current)
-        except ftplib.error_perm:
-            pass  # already exists
-
-
-def upload_files(files: list[Path], vault: Path) -> None:
-    vault_abs = vault.resolve()
-
-    print(f"\nConnecting to ftp://{FTP_HOST}:{FTP_PORT}  (user: {FTP_USER}) …")
-    with ftplib.FTP() as ftp:
-        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
-        ftp.login(FTP_USER, FTP_PASS)
-        ftp.set_pasv(True)
-        print(f"Connected. Uploading {len(files)} file(s) …\n")
-
-        for local in files:
-            rel      = local.resolve().relative_to(vault_abs)
-            remote   = str(rel).replace("\\", "/")
-            parent   = str(rel.parent).replace("\\", "/")
-
-            if parent and parent != ".":
-                ftp_mkdirs(ftp, parent)
-
-            with open(local, "rb") as f:
-                ftp.storbinary(f"STOR {remote}", f)
-
-            size = local.stat().st_size
-            print(f"  ✓  {remote}  ({size:,} bytes)")
-
-
-# ── Entry point ────────────────────────────────────────────────────────────────
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Upload published Obsidian notes to the FTP server."
-    )
-    parser.add_argument(
-        "vault_path",
-        help="Path to the Obsidian vault directory",
-    )
-    return parser.parse_args()
-
-
-def trigger_reload() -> None:
-    """Call /api/reload on the web server so new files become visible."""
-    url = f"{WEB_URL.rstrip('/')}/api/reload"
+def api_post_json(server: str, path: str, data: dict, token: str = "") -> dict:
+    url = f"{server.rstrip('/')}{path}"
+    payload = json.dumps(data).encode()
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            body = resp.read().decode()
-            print(f"  Server reload: {body.strip()}")
-    except Exception as exc:
-        print(f"  [warn] reload failed ({url}): {exc}")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        try:
+            return json.loads(body)
+        except Exception:
+            return {"error": f"HTTP {e.code}: {body[:200]}"}
 
+
+def upload_file(server: str, token: str, rel_path: str, local_path: Path) -> bool:
+    """Lädt eine einzelne Datei via multipart/form-data hoch."""
+    url = f"{server.rstrip('/')}/api/upload"
+    data = local_path.read_bytes()
+    boundary = "----ObsidianUpload"
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{rel_path}"\r\n'
+        f"Content-Type: application/octet-stream\r\n"
+        f"x-file-path: {rel_path}\r\n"
+        f"\r\n"
+    ).encode() + data + f"\r\n--{boundary}--\r\n".encode()
+
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status == 200
+    except urllib.error.HTTPError as e:
+        print(f"    [Fehler] {rel_path}: HTTP {e.code}")
+        return False
+
+
+def delete_remote(server: str, token: str, rel_path: str) -> bool:
+    url = f"{server.rstrip('/')}/api/files/delete?path={urllib.parse.quote(rel_path)}"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        method="DELETE",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status == 200
+    except urllib.error.HTTPError:
+        return False
+
+
+# ── Diff anzeigen ──────────────────────────────────────────────────────────────
+
+GRÜN  = "\033[92m"
+GELB  = "\033[93m"
+ROT   = "\033[91m"
+RESET = "\033[0m"
+FETT  = "\033[1m"
+
+def _colored(text: str, color: str) -> str:
+    if sys.stdout.isatty():
+        return f"{color}{text}{RESET}"
+    return text
+
+
+def show_diff(diff: list[dict]) -> None:
+    new_files  = [d for d in diff if d["status"] == "new"]
+    modified   = [d for d in diff if d["status"] == "modified"]
+    deleted    = [d for d in diff if d["status"] == "deleted"]
+
+    if new_files:
+        print(f"\n{_colored('Neu', GRÜN)} ({len(new_files)}):")
+        for d in new_files:
+            size = f"  ({d['local_size']:,} B)" if d.get("local_size") else ""
+            print(f"  + {d['path']}{size}")
+
+    if modified:
+        print(f"\n{_colored('Geändert', GELB)} ({len(modified)}):")
+        for d in modified:
+            size = f"  ({d['local_size']:,} B)" if d.get("local_size") else ""
+            print(f"  ~ {d['path']}{size}")
+
+    if deleted:
+        print(f"\n{_colored('Gelöscht (nur auf Server)', ROT)} ({len(deleted)}):")
+        for d in deleted:
+            print(f"  - {d['path']}")
+
+
+# ── Hauptprogramm ──────────────────────────────────────────────────────────────
 
 def main() -> None:
-    args  = parse_args()
-    vault = Path(args.vault_path).resolve()
+    args = parse_args()
 
-    if not vault.exists():
-        print(f"Error: vault path does not exist: {vault}", file=sys.stderr)
+    # Vault-Pfad ermitteln (--vault hat Vorrang, dann positionales Argument)
+    vault_str = args.vault or args.vault_path
+    if not vault_str:
+        print("Fehler: Kein Vault-Pfad angegeben.\n"
+              "  python publish.py --vault /pfad/zum/vault\n"
+              "  python publish.py /pfad/zum/vault", file=sys.stderr)
         sys.exit(1)
 
-    whitelist = load_list(WHITELIST_FILE)
-    blacklist = load_list(BLACKLIST_FILE)
+    vault = Path(vault_str).resolve()
+    if not vault.exists():
+        print(f"Fehler: Vault-Pfad existiert nicht: {vault}", file=sys.stderr)
+        sys.exit(1)
 
-    print(f"Vault      : {vault}")
-    print(f"FTP target : {FTP_HOST}:{FTP_PORT}")
-    print(f"Web server : {WEB_URL}")
-    print(f"Whitelist  : {len(whitelist)} pattern(s)")
-    print(f"Blacklist  : {len(blacklist)} pattern(s)\n")
+    # Server-URL aus .env lesen falls nicht angegeben
+    server = args.server
+    if not server:
+        env_file = Path(__file__).parent / ".env"
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("BASE_URL="):
+                    server = line.partition("=")[2].strip().strip('"\'')
+        if not server:
+            server = input("Server-URL [http://localhost:3000]: ").strip() or "http://localhost:3000"
 
-    files = collect(vault, whitelist, blacklist)
+    # Anmeldedaten
+    username = args.user or input("Benutzername: ").strip()
+    if not username:
+        print("Fehler: Kein Benutzername angegeben.", file=sys.stderr)
+        sys.exit(1)
+    password = getpass.getpass("Passwort: ")
 
-    if not files:
-        print("\nNothing to upload.")
+    # Login
+    print(f"\nVerbinde mit {server} …")
+    resp = api_post_json(server, "/api/auth/token",
+                         {"username": username, "password": password})
+    token = resp.get("token", "")
+    if not token:
+        print(f"Anmeldung fehlgeschlagen: {resp.get('error', 'Unbekannter Fehler')}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Angemeldet als {_colored(resp.get('username', username), FETT)}")
+
+    # Remote-Manifest laden
+    print("Lade Server-Dateiliste …")
+    try:
+        remote_list = api_get(server, "/api/files/manifest", token)
+    except Exception as e:
+        print(f"Fehler beim Laden der Server-Dateiliste: {e}", file=sys.stderr)
+        sys.exit(1)
+    remote_map = {f["path"]: f["checksum"] for f in remote_list if "path" in f}
+
+    # Lokalen Vault scannen
+    print(f"Scanne Vault: {vault} …")
+    local_map = scan_vault(vault)
+
+    # Diff berechnen
+    diff: list[dict] = []
+    for rel, info in local_map.items():
+        if rel not in remote_map:
+            diff.append({"status": "new",      "path": rel, "local_size": info["size"]})
+        elif info["checksum"] != remote_map[rel]:
+            diff.append({"status": "modified", "path": rel, "local_size": info["size"]})
+    for rel in remote_map:
+        if rel not in local_map:
+            diff.append({"status": "deleted",  "path": rel})
+
+    diff.sort(key=lambda d: (d["status"], d["path"]))
+
+    if not diff:
+        print("\nKeine Änderungen — alles ist aktuell.")
         return
 
-    print(f"\n{len(files)} file(s) queued.")
-    upload_files(files, vault)
+    show_diff(diff)
 
-    print("\nTriggering server reload …")
-    trigger_reload()
-    print(f"\nDone – {len(files)} file(s) uploaded and indexed.")
+    upload_paths = [d["path"] for d in diff if d["status"] != "deleted"]
+    delete_paths = [d["path"] for d in diff if d["status"] == "deleted"]
+
+    print(f"\n{len(upload_paths)} Datei(en) hochladen, "
+          f"{len(delete_paths)} Datei(en) löschen.")
+
+    if not args.yes:
+        try:
+            choice = input("\n[A]lle / [N]ichte / manuell auswählen [a/n/m]? ").strip().lower()
+        except KeyboardInterrupt:
+            print("\nAbgebrochen.")
+            return
+
+        if choice == "n":
+            print("Abgebrochen.")
+            return
+        elif choice == "m":
+            # Manuelle Auswahl
+            selected_upload, selected_delete = [], []
+            for d in diff:
+                action = "hochladen" if d["status"] != "deleted" else "löschen"
+                yn = input(f"  {d['status']:8}  {d['path']}  [{action}]? [j/n] ").strip().lower()
+                if yn == "j":
+                    if d["status"] == "deleted":
+                        selected_delete.append(d["path"])
+                    else:
+                        selected_upload.append(d["path"])
+            upload_paths = selected_upload
+            delete_paths = selected_delete
+        # else "a" oder Enter → alle
+
+    # Dateien hochladen
+    uploaded, errors = 0, 0
+    for rel in upload_paths:
+        local_path = vault / Path(rel)
+        print(f"  ↑ {rel}", end=" … ", flush=True)
+        if upload_file(server, token, rel, local_path):
+            print("OK")
+            uploaded += 1
+        else:
+            print("FEHLER")
+            errors += 1
+
+    # Dateien löschen
+    deleted_count = 0
+    for rel in delete_paths:
+        print(f"  ✕ {rel}", end=" … ", flush=True)
+        if delete_remote(server, token, rel):
+            print("OK")
+            deleted_count += 1
+        else:
+            print("FEHLER")
+            errors += 1
+
+    # Server-Reload
+    if uploaded or deleted_count:
+        print("\nServer neu laden …")
+        try:
+            api_get(server, "/api/reload", token)
+            print("OK")
+        except Exception:
+            pass
+
+    print(f"\n✓ {uploaded} hochgeladen, {deleted_count} gelöscht"
+          + (f", {errors} Fehler" if errors else "") + ".")
 
 
 if __name__ == "__main__":
