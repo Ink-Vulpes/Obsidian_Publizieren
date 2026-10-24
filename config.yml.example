@@ -1,0 +1,21 @@
+server:
+  port: 3000
+  vault_path: "/vault"
+  site_title: "My Digital Garden"
+  site_description: "A collection of interconnected notes"
+  base_url: "http://localhost:3000"
+
+database:
+  # Format: mysql://user:password@host:port/database
+  url: "mysql://obsidian:changeme@mysql:3306/obsidian"
+
+auth:
+  # IMPORTANT: Change this to a random string of at least 64 characters!
+  session_secret: "CHANGE_THIS_TO_A_RANDOM_64_CHAR_SECRET_STRING_MINIMUM_PLEASE_!!!"
+  session_duration_hours: 168   # 7 days
+
+admin:
+  # Initial admin account — only created on first startup when the database is empty.
+  # Change the password immediately after first login!
+  username: "admin"
+  password: "changeme"
