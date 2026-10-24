@@ -200,6 +200,8 @@ def main() -> None:
               "  python publish.py /pfad/zum/vault", file=sys.stderr)
         sys.exit(1)
 
+    # Strip stray quotes (PowerShell passes trailing " when path ends with \)
+    vault_str = vault_str.strip('"').strip("'")
     vault = Path(vault_str).resolve()
     if not vault.exists():
         print(f"Fehler: Vault-Pfad existiert nicht: {vault}", file=sys.stderr)
