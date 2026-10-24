@@ -200,14 +200,17 @@ def main() -> None:
               "  python publish.py /pfad/zum/vault", file=sys.stderr)
         sys.exit(1)
 
-    # Strip stray quotes (PowerShell passes trailing " when path ends with \)
-    vault_str = vault_str.strip('"').strip("'")
+    # PowerShell W32 arg-passing bug: 'C:\path\' --server X arrives as 'C:\path" --server X'
+    # Split at the first stray " and discard everything after it.
+    if '"' in vault_str:
+        vault_str = vault_str.split('"')[0]
+    vault_str = vault_str.strip("'").rstrip('\\').rstrip('/')
     vault = Path(vault_str).resolve()
     if not vault.exists():
         print(f"Fehler: Vault-Pfad existiert nicht: {vault}", file=sys.stderr)
         sys.exit(1)
 
-    # Server-URL aus .env lesen falls nicht angegeben
+    # Server-URL ermitteln und Protokoll sicherstellen
     server = args.server
     if not server:
         env_file = Path(__file__).parent / ".env"
@@ -217,6 +220,9 @@ def main() -> None:
                     server = line.partition("=")[2].strip().strip('"\'')
         if not server:
             server = input("Server-URL [http://localhost:3000]: ").strip() or "http://localhost:3000"
+
+    if not server.startswith(("http://", "https://")):
+        server = "http://" + server
 
     # Anmeldedaten
     username = args.user or input("Benutzername: ").strip()
