@@ -33,6 +33,7 @@ services:
       - "${WEB_PORT:-3000}:3000"
     volumes:
       - vault-data:/vault
+      - ./static:/app/static:ro
     environment:
       VAULT_PATH: /vault
       PORT: 3000
