@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block extra_scripts %}
+<script>
+  window.__EXCALIDRAW_DATA__ = {{ excalidraw_json | safe }};
+</script>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const container = document.getElementById('excalidraw-container');
+  if (!container) return;
+
+  const data = window.__EXCALIDRAW_DATA__;
+  if (!data || !ExcalidrawLib) {
+    container.innerHTML = '<p class="error-msg">Could not load Excalidraw viewer.</p>';
+    return;
+  }
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+  try {
+    const root = ReactDOM.createRoot(container);
+    root.render(
+      React.createElement(ExcalidrawLib.Excalidraw, {
+        initialData: {
+          elements: data.elements || [],
+          appState: {
+            ...(data.appState || {}),
+            theme: isDark ? 'dark' : 'light',
+            viewBackgroundColor: isDark ? '#1c1c1e' : '#faf8f8',
+          },
+          files: data.files || {},
+        },
+        viewModeEnabled: true,
+        zenModeEnabled: false,
+        gridModeEnabled: false,
+        UIOptions: { canvasActions: { export: true, loadScene: false } },
+      })
+    );
+  } catch (err) {
+    container.innerHTML = '<p class="error-msg">Excalidraw render error: ' + err.message + '</p>';
+  }
+});
+</script>
+{% endblock %}
+
+{% block content %}
+<article class="excalidraw-article">
+  <header class="note-header">
+    <span class="badge badge-excalidraw">Excalidraw</span>
+    <h1 class="note-title">{{ page_title }}</h1>
+  </header>
+  <div id="excalidraw-container" class="excalidraw-container"></div>
+</article>
+{% endblock %}

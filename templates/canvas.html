@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+  const canvasData = {{ canvas_json | safe }};
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('canvas-viewport');
+    if (!container || !canvasData.nodes) return;
+
+    const nodes = canvasData.nodes || [];
+    const edges = canvasData.edges || [];
+
+    if (nodes.length === 0) {
+      container.innerHTML = '<p class="canvas-empty">This canvas is empty.</p>';
+      return;
+    }
+
+    // Compute bounding box
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width);
+      maxY = Math.max(maxY, n.y + n.height);
+    }
+    const padding = 40;
+    const sceneW = maxX - minX + padding * 2;
+    const sceneH = maxY - minY + padding * 2;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', `${minX - padding} ${minY - padding} ${sceneW} ${sceneH}`);
+    svg.setAttribute('class', 'canvas-svg');
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    // Arrow marker
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="var(--secondary)"/>
+      </marker>`;
+    svg.appendChild(defs);
+
+    const COLOR_MAP = {
+      '1': '#e06c75', '2': '#e5c07b', '3': '#98c379',
+      '4': '#61afef', '5': '#c678dd', '6': '#56b6c2',
+    };
+
+    function nodeColor(n) {
+      const c = n.color;
+      if (!c) return null;
+      return COLOR_MAP[c] || c;
+    }
+
+    // Groups first (rendered below nodes)
+    for (const n of nodes) {
+      if (n.type !== 'group') continue;
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('class', 'canvas-group');
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', n.x); rect.setAttribute('y', n.y);
+      rect.setAttribute('width', n.width); rect.setAttribute('height', n.height);
+      rect.setAttribute('rx', '8');
+      const col = nodeColor(n);
+      if (col) rect.setAttribute('stroke', col);
+      g.appendChild(rect);
+      if (n.label) {
+        const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txt.setAttribute('x', n.x + 12); txt.setAttribute('y', n.y - 6);
+        txt.setAttribute('class', 'canvas-group-label');
+        txt.textContent = n.label;
+        g.appendChild(txt);
+      }
+      svg.appendChild(g);
+    }
+
+    // Edges
+    for (const e of edges) {
+      const from = nodes.find(n => n.id === e.fromNode);
+      const to = nodes.find(n => n.id === e.toNode);
+      if (!from || !to) continue;
+
+      const fx = from.x + from.width / 2, fy = from.y + from.height / 2;
+      const tx = to.x + to.width / 2, ty = to.y + to.height / 2;
+
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const mx = (fx + tx) / 2, my = (fy + ty) / 2;
+      line.setAttribute('d', `M ${fx} ${fy} Q ${mx} ${my} ${tx} ${ty}`);
+      line.setAttribute('class', 'canvas-edge');
+      if (e.color) line.setAttribute('stroke', COLOR_MAP[e.color] || e.color);
+      line.setAttribute('marker-end', 'url(#arrow)');
+      svg.appendChild(line);
+
+      if (e.label) {
+        const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txt.setAttribute('x', mx); txt.setAttribute('y', my - 6);
+        txt.setAttribute('class', 'canvas-edge-label');
+        txt.textContent = e.label;
+        svg.appendChild(txt);
+      }
+    }
+
+    // Nodes
+    for (const n of nodes) {
+      if (n.type === 'group') continue;
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('class', `canvas-node canvas-node-${n.type}`);
+      g.setAttribute('transform', `translate(${n.x},${n.y})`);
+
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('width', n.width); rect.setAttribute('height', n.height);
+      rect.setAttribute('rx', '6');
+      const col = nodeColor(n);
+      if (col) rect.setAttribute('style', `stroke:${col}`);
+      g.appendChild(rect);
+
+      // Node content
+      let labelText = '';
+      let href = null;
+      if (n.type === 'text') { labelText = n.text || ''; }
+      else if (n.type === 'file') {
+        labelText = n.file ? n.file.split('/').pop().replace(/\.md$/, '') : '';
+        href = n.file ? '/note/' + n.file.replace(/\.md$/, '') : null;
+      } else if (n.type === 'link') { labelText = n.url || ''; href = n.url; }
+
+      if (labelText) {
+        const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+        fo.setAttribute('x', '10'); fo.setAttribute('y', '10');
+        fo.setAttribute('width', n.width - 20); fo.setAttribute('height', n.height - 20);
+        const div = document.createElement('div');
+        div.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+        div.className = 'canvas-node-text';
+        div.textContent = labelText;
+        fo.appendChild(div);
+        g.appendChild(fo);
+      }
+
+      if (href) {
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', () => { window.location.href = href; });
+      }
+      svg.appendChild(g);
+    }
+
+    container.appendChild(svg);
+
+    // Pan & Zoom
+    let scale = 1, tx = 0, ty = 0, dragging = false, startX, startY;
+    container.addEventListener('wheel', e => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      scale = Math.max(0.1, Math.min(10, scale * factor));
+      svg.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+    }, { passive: false });
+    container.addEventListener('mousedown', e => { dragging = true; startX = e.clientX - tx; startY = e.clientY - ty; });
+    window.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      tx = e.clientX - startX; ty = e.clientY - startY;
+      svg.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+    });
+  });
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<article class="canvas-article">
+  <header class="note-header">
+    <span class="badge badge-canvas">Canvas</span>
+    <h1 class="note-title">{{ page_title }}</h1>
+  </header>
+  <div id="canvas-viewport" class="canvas-viewport">
+    <p class="canvas-empty">Loading canvas…</p>
+  </div>
+</article>
+{% endblock %}

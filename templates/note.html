@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article class="note-article">
+  <header class="note-header">
+    <h1 class="note-title">{{ page_title }}</h1>
+    {% if tags and tags | length > 0 %}
+    <div class="note-tags">
+      {% for tag in tags %}
+      <span class="tag">#{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </header>
+
+  <div class="note-content markdown-body">
+    {{ content | safe }}
+  </div>
+</article>
+{% endblock %}

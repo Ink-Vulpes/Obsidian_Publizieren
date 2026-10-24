@@ -1,0 +1,87 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Obsidian Publisher Stack
+#
+# Services:
+#   web   – Rust web server that renders notes on-the-fly (port 3000)
+#   ftp   – vsftpd FTP server for uploading / syncing the Obsidian vault
+#
+# Shared volume:
+#   vault-data  – mounted at /vault (web) and /home/vsftpd/<FTP_USER> (ftp)
+#
+# FTP credentials (change before going to production!):
+#   User:     ${FTP_USER:-obsidian}
+#   Password: ${FTP_PASS:-changeme}
+#   Passive:  ports 21100–21110
+#
+# After uploading new notes via FTP, reload the index:
+#   curl http://localhost:3000/api/reload
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Web server ───────────────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: obsidian-publisher:latest
+    container_name: obsidian-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - vault-data:/vault
+    environment:
+      VAULT_PATH: /vault
+      PORT: 3000
+      SITE_TITLE: "${SITE_TITLE:-My Digital Garden}"
+      SITE_DESCRIPTION: "${SITE_DESCRIPTION:-A collection of interconnected notes}"
+      BASE_URL: "${BASE_URL:-http://localhost:3000}"
+      RUST_LOG: "${RUST_LOG:-info}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - ftp
+
+  # ── FTP server ───────────────────────────────────────────────────────────────
+  ftp:
+    image: fauria/vsftpd:latest
+    container_name: obsidian-ftp
+    restart: unless-stopped
+    ports:
+      - "21:21"
+      - "21100-21110:21100-21110"
+    volumes:
+      - vault-data:/home/vsftpd/${FTP_USER:-obsidian}
+    environment:
+      FTP_USER: "${FTP_USER:-obsidian}"
+      FTP_PASS: "${FTP_PASS:-changeme}"
+      PASV_ADDRESS: "${PASV_ADDRESS:-127.0.0.1}"
+      PASV_MIN_PORT: 21100
+      PASV_MAX_PORT: 21110
+      LOCAL_UMASK: "022"
+      FILE_OPEN_MODE: "0644"
+      LOG_STDOUT: "true"
+
+volumes:
+  vault-data:
+    driver: local
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuration via .env file (create in project root):
+#
+#   WEB_PORT=3000
+#   SITE_TITLE=My Notes
+#   SITE_DESCRIPTION=Personal digital garden
+#   BASE_URL=https://notes.example.com
+#   FTP_USER=obsidian
+#   FTP_PASS=a_strong_password
+#   PASV_ADDRESS=your.server.ip.or.hostname
+#   RUST_LOG=info
+# ─────────────────────────────────────────────────────────────────────────────

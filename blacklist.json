@@ -1,0 +1,6 @@
+[
+  "Private/**",
+  "Inbox/**",
+  "**/*.excalidraw",
+  "Daily Notes/**"
+]
