@@ -1,26 +1,38 @@
 <!DOCTYPE html>
-<html lang="de" data-theme="dark">
+<html lang="de">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Registrieren — {{ site_title }}</title>
-  <link rel="stylesheet" href="/static/css/style.css">
   <style>
-    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); }
-    .login-card { width: 100%; max-width: 400px; padding: 2.5rem 2rem; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.35); }
-    .login-logo { display: flex; align-items: center; gap: .6rem; margin-bottom: 2rem; text-decoration: none; color: var(--text); }
-    .login-logo svg { width: 28px; height: 28px; color: var(--accent); }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      display: flex; align-items: center; justify-content: center; min-height: 100vh;
+      background: #1c1c1e; font-family: system-ui, -apple-system, sans-serif;
+    }
+    .login-card {
+      width: 100%; max-width: 400px; padding: 2.5rem 2rem;
+      background: #2d2d2f; border: 1px solid #3d3d3f;
+      border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    }
+    .login-logo { display: flex; align-items: center; gap: .6rem; margin-bottom: 2rem; text-decoration: none; color: #ebebec; }
+    .login-logo svg { width: 28px; height: 28px; color: #7b97aa; flex-shrink: 0; }
     .login-logo span { font-size: 1.1rem; font-weight: 700; }
-    h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 1.5rem; color: var(--text); }
+    h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 1.5rem; color: #ebebec; }
     .field { margin-bottom: 1rem; }
-    label { display: block; font-size: .82rem; font-weight: 600; color: var(--text-muted); margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .04em; }
-    input[type=text], input[type=password] { width: 100%; padding: .6rem .8rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: .95rem; box-sizing: border-box; outline: none; transition: border-color .15s; }
-    input:focus { border-color: var(--accent); }
-    .btn-login { width: 100%; padding: .65rem; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-size: .95rem; font-weight: 600; cursor: pointer; margin-top: .5rem; transition: opacity .15s; }
+    label { display: block; font-size: .82rem; font-weight: 600; color: #a0a0a8; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .04em; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: .6rem .8rem; border-radius: 6px;
+      border: 1px solid #4a4a4f; background: #1c1c1e; color: #ebebec;
+      font-size: .95rem; outline: none; transition: border-color .15s;
+    }
+    input:focus { border-color: #7b97aa; }
+    input::placeholder { color: #666; }
+    .btn-login { width: 100%; padding: .65rem; background: #7b97aa; color: #fff; border: none; border-radius: 6px; font-size: .95rem; font-weight: 600; cursor: pointer; margin-top: .5rem; transition: opacity .15s; }
     .btn-login:hover { opacity: .85; }
-    .error-msg { background: rgba(220,50,50,.12); border: 1px solid rgba(220,50,50,.35); border-radius: 6px; padding: .6rem .8rem; color: #e06060; font-size: .88rem; margin-bottom: 1rem; }
-    .invalid-msg { background: rgba(220,150,50,.12); border: 1px solid rgba(220,150,50,.35); border-radius: 6px; padding: 1rem; color: #e0a050; font-size: .95rem; }
-    .hint { font-size: .78rem; color: var(--text-muted); margin-top: .25rem; }
+    .error-msg { background: rgba(220,50,50,.15); border: 1px solid rgba(220,50,50,.4); border-radius: 6px; padding: .6rem .8rem; color: #e08080; font-size: .88rem; margin-bottom: 1rem; }
+    .invalid-msg { background: rgba(220,150,50,.15); border: 1px solid rgba(220,150,50,.4); border-radius: 6px; padding: 1rem; color: #e0a868; font-size: .95rem; }
+    .hint { font-size: .78rem; color: #888; margin-top: .25rem; }
   </style>
 </head>
 <body>
