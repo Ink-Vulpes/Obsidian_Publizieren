@@ -58,11 +58,9 @@
       files: data.files || null,
     });
 
-    // Remove dark-mode invert filter — we always render in light mode for the page
+    // exportToSvg may add an invert filter for dark mode; remove it since we
+    // already export with the correct theme colours above.
     svg.removeAttribute('filter');
-    // Fix background rect color to white
-    const bgRect = svg.querySelector('rect:first-of-type');
-    if (bgRect) bgRect.setAttribute('fill', '#ffffff');
     // Fix text that may have been set to very dark (near-invisible on dark bg) — keep as is,
     // since dark text (#1e1e1e) is correct for a white background.
     svg.style.cssText = 'width:100%;height:auto;max-height:75vh;display:block;border-radius:6px';

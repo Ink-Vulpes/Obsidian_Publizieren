@@ -227,7 +227,12 @@ fn preprocess_embeds(content: &str, vault: &Vault) -> String {
                     if entry.kind == NoteKind::Excalidraw {
                         let file_path = vault.root.join(&entry.path);
                         if let Ok(file_content) = std::fs::read_to_string(&file_path) {
-                            if let Some(data) = super::excalidraw::parse_excalidraw(&file_content) {
+                            if let Some(mut data) = super::excalidraw::parse_excalidraw(&file_content) {
+                                super::excalidraw::resolve_embedded_files(
+                                    &mut data,
+                                    &vault.root,
+                                    &vault.asset_paths,
+                                );
                                 if let Ok(json) = serde_json::to_string(&data) {
                                     return format!(
                                         "\n\n<div class=\"excalidraw-embed\" data-excalidraw='{}' title=\"{}\">\

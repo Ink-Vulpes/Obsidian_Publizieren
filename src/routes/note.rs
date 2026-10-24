@@ -170,9 +170,18 @@ async fn render_excalidraw(
     state: AppState,
 ) -> Html<String> {
     let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
-    let excalidraw_json = crate::parser::excalidraw::parse_excalidraw(&content)
-        .and_then(|d| serde_json::to_string(&d).ok())
-        .unwrap_or_else(|| r#"{"elements":[]}"#.to_string());
+    let vault = state.vault.read().await;
+    let excalidraw_json = {
+        let mut data = crate::parser::excalidraw::parse_excalidraw(&content)
+            .unwrap_or_default();
+        crate::parser::excalidraw::resolve_embedded_files(
+            &mut data,
+            &vault.root,
+            &vault.asset_paths,
+        );
+        serde_json::to_string(&data).unwrap_or_else(|_| r#"{"elements":[]}"#.to_string())
+    };
+    drop(vault);
 
     let mut ctx = tera::Context::new();
     ctx.insert("site_title", &state.config.site_title);
