@@ -1,22 +1,28 @@
-import { Notice, Plugin } from 'obsidian';
+import { Notice, Plugin, WorkspaceLeaf } from 'obsidian';
 import { ApiClient } from './api';
 import { SyncEngine } from './sync-engine';
 import type { SyncState } from './sync-engine';
 import { DEFAULT_SETTINGS, PublisherSettingTab } from './settings';
 import type { PublisherSettings } from './settings';
+import { LogStore } from './log-store';
+import type { LogEntry } from './log-store';
+import { SyncLogView, SYNC_LOG_VIEW_TYPE } from './views/SyncLogView';
 import { SyncModal } from './modals/SyncModal';
 import { AdminModal } from './modals/AdminModal';
+import { LogModal } from './modals/LogModal';
 
 interface PluginData {
 	settings: PublisherSettings;
 	syncState: SyncState;
 	deviceId: string;
+	logEntries: LogEntry[];
 }
 
 export default class ObsidianPublisher extends Plugin {
 	settings: PublisherSettings;
 	api: ApiClient;
 	syncEngine: SyncEngine;
+	logStore: LogStore;
 
 	private autoSyncTimer: number | null = null;
 	private statusBar: HTMLElement;
@@ -30,18 +36,37 @@ export default class ObsidianPublisher extends Plugin {
 		this.syncEngine = new SyncEngine(this.app, this.api);
 		this.syncEngine.loadSyncState(this.syncState);
 
-		// Status bar
+		// ── Side-panel view ──────────────────────────────────────────────────────
+		this.registerView(SYNC_LOG_VIEW_TYPE, leaf => new SyncLogView(leaf, this.logStore));
+
+		// ── Status bar ───────────────────────────────────────────────────────────
 		this.statusBar = this.addStatusBarItem();
+		this.statusBar.style.cursor = 'pointer';
+		this.statusBar.title = 'Publisher Log öffnen';
+		this.statusBar.onclick = () => this.openLogPanel();
 		this.setStatus('bereit');
 
-		// Ribbon icon
+		// ── Ribbon ───────────────────────────────────────────────────────────────
 		this.addRibbonIcon('cloud-upload', 'Publisher synchronisieren', () => this.openSyncModal());
+		this.addRibbonIcon('history', 'Publisher Log', () => this.openLogPanel());
 
-		// Commands
+		// ── Commands ─────────────────────────────────────────────────────────────
 		this.addCommand({
 			id: 'sync-now',
 			name: 'Jetzt synchronisieren',
 			callback: () => this.openSyncModal(),
+		});
+
+		this.addCommand({
+			id: 'open-log-panel',
+			name: 'Protokoll-Panel öffnen',
+			callback: () => this.openLogPanel(),
+		});
+
+		this.addCommand({
+			id: 'open-log-modal',
+			name: 'Protokoll-Modal öffnen',
+			callback: () => new LogModal(this.app, this.logStore).open(),
 		});
 
 		this.addCommand({
@@ -56,32 +81,48 @@ export default class ObsidianPublisher extends Plugin {
 			callback: () => this.syncSilent(),
 		});
 
-		// Settings tab
+		// ── Settings tab ─────────────────────────────────────────────────────────
 		this.addSettingTab(new PublisherSettingTab(this.app, this));
 
-		// Auto-sync
+		// ── Auto-sync ────────────────────────────────────────────────────────────
 		if (this.settings.autoSync) this.startAutoSync();
 
-		// Sync on startup
 		if (this.settings.syncOnStartup) {
 			window.setTimeout(() => this.syncSilent(), 2000);
 		}
 
-		// Register device
 		window.setTimeout(() => this.registerDevice(), 5000);
 	}
 
 	onunload() {
 		this.stopAutoSync();
+		this.app.workspace.detachLeavesOfType(SYNC_LOG_VIEW_TYPE);
 	}
 
-	// ── Settings & data ────────────────────────────────────────────────────────
+	// ── Log panel ─────────────────────────────────────────────────────────────
+
+	async openLogPanel() {
+		const existing = this.app.workspace.getLeavesOfType(SYNC_LOG_VIEW_TYPE);
+		if (existing.length > 0) {
+			this.app.workspace.revealLeaf(existing[0]);
+			return;
+		}
+		const leaf = this.app.workspace.getRightLeaf(false);
+		if (leaf) {
+			await leaf.setViewState({ type: SYNC_LOG_VIEW_TYPE, active: true });
+			this.app.workspace.revealLeaf(leaf);
+		}
+	}
+
+	// ── Settings & data ───────────────────────────────────────────────────────
 
 	private async loadPluginData() {
 		const raw: Partial<PluginData> = await this.loadData() ?? {};
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, raw.settings ?? {});
 		this.syncState = raw.syncState ?? {};
 		this.deviceId = raw.deviceId ?? this.generateDeviceId();
+		this.logStore = new LogStore();
+		this.logStore.load(raw.logEntries ?? []);
 	}
 
 	async saveSettings() {
@@ -94,11 +135,12 @@ export default class ObsidianPublisher extends Plugin {
 			settings: this.settings,
 			syncState: this.syncEngine?.getSyncState() ?? this.syncState,
 			deviceId: this.deviceId,
+			logEntries: this.logStore.serialize(),
 		};
 		await this.saveData(data);
 	}
 
-	// ── Auto-sync ──────────────────────────────────────────────────────────────
+	// ── Auto-sync ─────────────────────────────────────────────────────────────
 
 	startAutoSync() {
 		this.stopAutoSync();
@@ -124,6 +166,14 @@ export default class ObsidianPublisher extends Plugin {
 		try {
 			const diff = await this.syncEngine.computeDiff();
 			new SyncModal(this.app, diff, this.syncEngine, async (errors) => {
+				this.logStore.add({
+					timestamp: Date.now(),
+					push: diff.push,
+					pull: diff.pull,
+					deleteRemote: diff.deleteRemote,
+					deleteLocal: diff.deleteLocal,
+					errors,
+				});
 				await this.savePluginData();
 				try { await this.api.reloadVault(); } catch { /* non-critical */ }
 				if (errors.length > 0) {
@@ -147,6 +197,14 @@ export default class ObsidianPublisher extends Plugin {
 		try {
 			const { errors, diff } = await this.syncEngine.syncAll((_msg, done, total) => {
 				this.setStatus(`${done}/${total}`);
+			});
+			this.logStore.add({
+				timestamp: Date.now(),
+				push: diff.push,
+				pull: diff.pull,
+				deleteRemote: diff.deleteRemote,
+				deleteLocal: diff.deleteLocal,
+				errors,
 			});
 			await this.savePluginData();
 			try { await this.api.reloadVault(); } catch { /* non-critical */ }
@@ -173,9 +231,7 @@ export default class ObsidianPublisher extends Plugin {
 		const name = this.settings.deviceName || `Obsidian (${navigator.platform})`;
 		try {
 			await this.api.registerDevice(this.deviceId, name);
-		} catch {
-			// silent — not critical
-		}
+		} catch { /* silent */ }
 	}
 
 	private generateDeviceId(): string {
