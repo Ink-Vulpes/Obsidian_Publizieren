@@ -130,7 +130,17 @@ def upload_file(server: str, token: str, rel_path: str, local_path: Path) -> boo
     )
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
-            return r.status == 200
+            if r.status != 200:
+                return False
+            try:
+                body = json.loads(r.read())
+                if body.get("errors"):
+                    for err in body["errors"]:
+                        sys.stdout.write(f"\n  {_colored('FEHLER', ROT)} server: {err}\n")
+                        sys.stdout.flush()
+                return body.get("uploaded", 0) > 0
+            except Exception:
+                return True
     except urllib.error.HTTPError as e:
         print(f"    [Fehler] {rel_path}: HTTP {e.code}")
         return False

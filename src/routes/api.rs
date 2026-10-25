@@ -284,20 +284,19 @@ pub async fn upload_files(
             .map(|s| s.to_string())
             .unwrap_or_else(|| filename.clone());
 
-        // Security: prevent path traversal
-        let target = vault_root.join(&rel_path);
-        let canonical_vault = vault_root.canonicalize().unwrap_or(vault_root.clone());
-        let canonical_target = match target.parent().and_then(|p| p.canonicalize().ok()) {
-            Some(parent) => parent.join(target.file_name().unwrap_or_default()),
-            None => {
-                errors.push(format!("{}: bad path", rel_path));
-                continue;
-            }
-        };
-        if !canonical_target.starts_with(&canonical_vault) {
+        // Security: prevent path traversal without requiring parent dirs to exist.
+        // Only allow Normal path components (no "..", no absolute paths, no Windows prefixes).
+        let rel_clean = rel_path.replace('\\', "/");
+        let rel_pb = std::path::PathBuf::from(&rel_clean);
+        let is_safe = !rel_clean.is_empty()
+            && rel_pb
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)));
+        if !is_safe {
             errors.push(format!("{}: path traversal rejected", rel_path));
             continue;
         }
+        let target = vault_root.join(&rel_pb);
 
         let data: Bytes = match field.bytes().await {
             Ok(b) => b,
