@@ -1,6 +1,7 @@
 use axum::{
     body::Bytes,
     extract::{Multipart, Query, State},
+    extract::Json as ExtractJson,
     http::StatusCode,
     response::Json,
     Extension,
@@ -334,6 +335,11 @@ pub async fn upload_files(
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644));
             }
+            let checksum = hex::encode(sha2::Sha256::digest(&data));
+            let _ = crate::db::upsert_vault_file(
+                &state.db, &rel_clean, &checksum, data.len() as u64,
+                current_user.id, None,
+            ).await;
             uploaded += 1;
         }
     }
@@ -374,6 +380,63 @@ pub async fn delete_file(
     }
 
     match std::fs::remove_file(&target) {
+        Ok(_) => {
+            let _ = crate::db::delete_vault_file(&state.db, &params.path).await;
+            Json(serde_json::json!({"ok": true})).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+// ── File download (for bidirectional sync) ────────────────────────────────────
+
+pub async fn download_file(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Query(params): Query<DeleteQuery>,
+) -> axum::response::Response {
+    if !current_user.can_upload && !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, "Keine Berechtigung").into_response();
+    }
+
+    let vault_root = PathBuf::from(&state.config.server.vault_path);
+    let rel_clean = params.path.replace('\\', "/");
+    let rel_pb = std::path::PathBuf::from(&rel_clean);
+    let is_safe = !rel_clean.is_empty()
+        && rel_pb.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+    if !is_safe {
+        return (StatusCode::BAD_REQUEST, "Ungültiger Pfad").into_response();
+    }
+
+    let target = vault_root.join(&rel_pb);
+    match std::fs::read(&target) {
+        Ok(data) => (
+            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+            data,
+        )
+            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Datei nicht gefunden").into_response(),
+    }
+}
+
+// ── Device registration ───────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct RegisterDeviceBody {
+    pub device_id: String,
+    pub device_name: String,
+}
+
+pub async fn register_device(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    ExtractJson(body): ExtractJson<RegisterDeviceBody>,
+) -> axum::response::Response {
+    match crate::db::upsert_sync_device(&state.db, &body.device_id, &body.device_name, current_user.id).await {
         Ok(_) => Json(serde_json::json!({"ok": true})).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

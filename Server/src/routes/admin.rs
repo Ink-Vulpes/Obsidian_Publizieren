@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Form, Path, State},
+    extract::{Extension, Form, Json as ExtractJson, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
@@ -216,6 +216,86 @@ pub async fn remove_blacklist(
     let _ = crate::db::remove_from_blacklist(&state.db, &form.slug).await;
     refresh_lists(&state).await;
     Redirect::to("/admin#lists").into_response()
+}
+
+// ── JSON API for Obsidian plugin ──────────────────────────────────────────────
+
+pub async fn api_list_users(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.is_admin && !current_user.can_manage_users {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Keine Berechtigung"}))).into_response();
+    }
+    match crate::db::list_users_with_permissions(&state.db).await {
+        Ok(users) => Json(users).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UpdatePermJson {
+    pub can_upload: bool,
+    pub can_manage_users: bool,
+    pub can_manage_lists: bool,
+    pub folder_restriction: bool,
+    pub folders: Option<Vec<String>>,
+}
+
+pub async fn api_update_permissions(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(user_id): Path<u32>,
+    ExtractJson(body): ExtractJson<UpdatePermJson>,
+) -> Response {
+    if !current_user.can_manage_users && !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Keine Berechtigung"}))).into_response();
+    }
+    let perms = crate::db::UserPermissions {
+        user_id,
+        can_upload: body.can_upload,
+        can_manage_users: body.can_manage_users,
+        can_manage_lists: body.can_manage_lists,
+        folder_restriction: body.folder_restriction,
+    };
+    if let Err(e) = crate::db::upsert_permissions(&state.db, &perms).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+    }
+    let folders = body.folders.unwrap_or_default();
+    let _ = crate::db::set_folder_access(&state.db, user_id, &folders).await;
+    Json(serde_json::json!({"ok": true})).into_response()
+}
+
+pub async fn api_get_lists(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.can_manage_lists && !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Keine Berechtigung"}))).into_response();
+    }
+    let whitelist = crate::db::get_whitelist(&state.db).await.unwrap_or_default();
+    let blacklist = crate::db::get_blacklist(&state.db).await.unwrap_or_default();
+    Json(serde_json::json!({"whitelist": whitelist, "blacklist": blacklist})).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct SetListsBody {
+    pub whitelist: Vec<String>,
+    pub blacklist: Vec<String>,
+}
+
+pub async fn api_set_lists(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    ExtractJson(body): ExtractJson<SetListsBody>,
+) -> Response {
+    if !current_user.can_manage_lists && !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Keine Berechtigung"}))).into_response();
+    }
+    let _ = crate::db::set_whitelist(&state.db, &body.whitelist, current_user.id).await;
+    let _ = crate::db::set_blacklist(&state.db, &body.blacklist, current_user.id).await;
+    refresh_lists(&state).await;
+    Json(serde_json::json!({"ok": true})).into_response()
 }
 
 fn require_lists(user: &CurrentUser) -> Result<(), Response> {

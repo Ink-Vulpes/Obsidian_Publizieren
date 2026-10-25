@@ -50,13 +50,17 @@ pub async fn create_pool(database_url: &str) -> anyhow::Result<MySqlPool> {
     Ok(pool)
 }
 
-/// Run the embedded schema migration (idempotent – uses IF NOT EXISTS).
+/// Run all embedded schema migrations (idempotent – every statement uses IF NOT EXISTS).
 pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
-    let sql = include_str!("../migrations/001_init.sql");
-    for stmt in sql.split(";\n") {
-        let s = stmt.trim();
-        if !s.is_empty() {
-            sqlx::query(s).execute(pool).await?;
+    for sql in &[
+        include_str!("../migrations/001_init.sql"),
+        include_str!("../migrations/002_sync.sql"),
+    ] {
+        for stmt in sql.split(";\n") {
+            let s = stmt.trim();
+            if !s.is_empty() {
+                sqlx::query(s).execute(pool).await?;
+            }
         }
     }
     Ok(())
@@ -342,5 +346,91 @@ pub async fn remove_from_blacklist(pool: &MySqlPool, slug: &str) -> anyhow::Resu
         .bind(slug)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+pub async fn set_whitelist(pool: &MySqlPool, slugs: &[String], added_by: u32) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM note_whitelist").execute(pool).await?;
+    for slug in slugs {
+        sqlx::query("INSERT IGNORE INTO note_whitelist (slug, added_by) VALUES (?, ?)")
+            .bind(slug)
+            .bind(added_by)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn set_blacklist(pool: &MySqlPool, slugs: &[String], added_by: u32) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM note_blacklist").execute(pool).await?;
+    for slug in slugs {
+        sqlx::query("INSERT IGNORE INTO note_blacklist (slug, added_by) VALUES (?, ?)")
+            .bind(slug)
+            .bind(added_by)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+// ── Vault file tracking ──────────────────────────────────────────────────────
+
+pub async fn upsert_vault_file(
+    pool: &MySqlPool,
+    path: &str,
+    checksum: &str,
+    size: u64,
+    uploaded_by: u32,
+    device_id: Option<&str>,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO vault_files (path, checksum, size, modified_at, uploaded_by, device_id)
+         VALUES (?, ?, ?, NOW(), ?, ?)
+         ON DUPLICATE KEY UPDATE
+           checksum    = VALUES(checksum),
+           size        = VALUES(size),
+           modified_at = NOW(),
+           uploaded_by = VALUES(uploaded_by),
+           device_id   = VALUES(device_id)",
+    )
+    .bind(path)
+    .bind(checksum)
+    .bind(size as i64)
+    .bind(uploaded_by)
+    .bind(device_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_vault_file(pool: &MySqlPool, path: &str) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM vault_files WHERE path = ?")
+        .bind(path)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ── Sync devices ─────────────────────────────────────────────────────────────
+
+pub async fn upsert_sync_device(
+    pool: &MySqlPool,
+    device_id: &str,
+    device_name: &str,
+    user_id: u32,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO sync_devices (device_id, device_name, user_id, last_seen)
+         VALUES (?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE
+           device_name = VALUES(device_name),
+           user_id     = VALUES(user_id),
+           last_seen   = NOW()",
+    )
+    .bind(device_id)
+    .bind(device_name)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }

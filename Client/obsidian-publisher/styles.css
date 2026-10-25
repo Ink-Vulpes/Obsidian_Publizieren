@@ -1,0 +1,130 @@
+/* ── Obsidian Publisher Plugin Styles ─────────────────────────────────────── */
+
+/* Status labels */
+.publisher-ok   { color: var(--color-green); }
+.publisher-error { color: var(--color-red); }
+
+/* Sync modal lists */
+.publisher-list { margin: 4px 0 12px 0; padding-left: 20px; font-size: 13px; }
+.publisher-list li { margin: 2px 0; word-break: break-all; }
+.publisher-push li::marker   { color: var(--color-green); }
+.publisher-pull li::marker   { color: var(--color-blue); }
+.publisher-delete li::marker { color: var(--color-red); }
+.publisher-conflict li::marker { color: var(--color-orange); }
+.publisher-more { font-style: italic; opacity: 0.7; }
+
+/* Progress */
+.publisher-progress {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  padding: 8px 0;
+  word-break: break-all;
+  color: var(--text-muted);
+}
+
+/* Admin modal */
+.publisher-admin-modal { min-width: 540px; }
+
+.publisher-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 16px;
+}
+
+.publisher-tab {
+  padding: 6px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.publisher-tab:hover { background: var(--background-modifier-hover); }
+.publisher-tab-active {
+  color: var(--text-normal);
+  border-bottom: 2px solid var(--interactive-accent);
+  font-weight: 600;
+}
+
+.publisher-tab-body { min-height: 200px; }
+
+/* User cards */
+.publisher-user-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.publisher-user-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.publisher-badge {
+  font-size: 11px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.publisher-perms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 8px;
+}
+
+.publisher-perm-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.publisher-danger-btn {
+  margin-top: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--color-red);
+  color: var(--color-red);
+  background: none;
+  cursor: pointer;
+}
+.publisher-danger-btn:hover { background: var(--color-red); color: #fff; }
+
+/* Invite */
+.publisher-invite-result { margin-top: 12px; }
+.publisher-invite-url {
+  width: 100%;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  margin-bottom: 6px;
+}
+
+/* Lists */
+.publisher-list-textarea {
+  width: 100%;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  resize: vertical;
+  margin-bottom: 8px;
+}
