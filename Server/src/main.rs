@@ -1,7 +1,8 @@
-use axum::{extract::DefaultBodyLimit, middleware, routing::{delete, get, post}, Router};
+use axum::{extract::DefaultBodyLimit, http::HeaderValue, middleware, routing::{delete, get, post}, Router};
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use tokio::sync::RwLock as AsyncRwLock;
+use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
 use tower_http::services::ServeDir;
 
 mod auth;
@@ -115,6 +116,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/blacklist/remove", post(routes::admin::remove_blacklist))
         .nest_service("/vault-assets", ServeDir::new(config.server.vault_path.clone()))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(AllowMethods::any())
+                .allow_headers(AllowHeaders::any()),
+        )
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", config.server.port);
