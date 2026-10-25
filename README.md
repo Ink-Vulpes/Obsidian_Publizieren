@@ -100,32 +100,61 @@ Unter **http://localhost:3000/admin** (nach Login) können:
 
 ### 5. Notes hochladen
 
+#### Lokal (Entwicklung)
+
 ```bash
 python publish.py --vault /pfad/zur/obsidian-vault
 ```
 
-Optionen:
+#### Auf einen Remote-Server
+
+```bash
+python publish.py --vault /pfad/zur/obsidian-vault --server meinserver.de
+```
+
+Die Server-URL kann mit oder ohne `http://` angegeben werden — das Protokoll wird automatisch ergänzt. Für HTTPS:
+
+```bash
+python publish.py --vault /pfad/zur/obsidian-vault --server https://notes.example.com
+```
+
+Mit gespeichertem Benutzernamen und ohne Rückfrage (z. B. in einem Skript oder Cronjob):
+
+```bash
+python publish.py --vault /pfad/zur/obsidian-vault --server https://notes.example.com --user admin --yes
+```
+
+**Windows / PowerShell:**
+
+```powershell
+python publish.py --vault "D:\My Second Brain" --server meinserver.de
+```
+
+> Den Vault-Pfad **ohne** abschließenden Backslash angeben — `"D:\My Second Brain\"` führt zu einem PowerShell-Escaping-Fehler.
+
+#### Optionen
 
 | Flag | Beschreibung |
 |------|-------------|
 | `--vault PFAD` | Pfad zum Obsidian-Vault (auch als erstes positionelles Argument) |
-| `--server URL` | Server-URL (Standard: `http://localhost:3000`) |
+| `--server URL` | Server-URL, mit oder ohne `http://` (Standard: `http://localhost:3000`) |
 | `--user NAME` | Benutzername (wird sonst interaktiv abgefragt) |
 | `--yes` / `-y` | Alle Änderungen ohne Rückfrage synchronisieren |
 
-Das Script:
-1. Meldet sich per Bearer-Token an (`/api/auth/token`)
-2. Lädt das Server-Manifest (`/api/files/manifest`) mit SHA-256-Checksummen
-3. Scannt den lokalen Vault und berechnet lokale Checksummen
-4. Zeigt neue / geänderte / gelöschte Dateien an
-5. Lädt ausgewählte Dateien per `multipart/form-data` hoch
-6. Löscht entfernte Dateien auf dem Server
-7. Ruft `/api/reload` auf – der Server indiziert sofort neu
+#### Ablauf
 
-> **Hinweis (Windows / PowerShell):** Wenn der Vault-Pfad mit `\` endet, kommt es zu einem Escaping-Problem. Entweder den Pfad ohne abschließenden Backslash angeben oder Anführungszeichen weglassen:
-> ```powershell
-> python publish.py --vault "D:\My Second Brain"
-> ```
+1. Anmeldung per Bearer-Token (`/api/auth/token`)
+2. Server-Manifest laden (`/api/files/manifest`) mit SHA-256-Checksummen
+3. Lokalen Vault scannen und Checksummen berechnen
+4. Diff anzeigen: neue / geänderte / gelöschte Dateien
+5. Auswahl: **Alle** / **Keine** / **Manuell** Datei für Datei
+6. Upload mit Fortschrittsbalken (zeigt MB/GB hochgeladen / gesamt)
+7. Gelöschte Dateien auf dem Server entfernen
+8. `/api/reload` aufrufen – Server indiziert sofort neu
+
+#### Benutzer für den Upload freischalten
+
+Der Benutzer, der `publish.py` ausführt, benötigt die Berechtigung **„Darf Dateien hochladen"**. Diese wird im Admin-Panel unter **Benutzer → Rechte bearbeiten → Upload** gesetzt. Der Admin-Account hat diese Berechtigung automatisch.
 
 ---
 
