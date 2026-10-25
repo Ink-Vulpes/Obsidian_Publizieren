@@ -1,5 +1,5 @@
-/target/
-.env
-vault/
-*.excalidraw
-config.yml
+Server/target/
+Server/.env
+Server/vault/
+Server/*.excalidraw
+Server/config.yml
