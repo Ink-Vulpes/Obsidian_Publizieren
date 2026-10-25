@@ -19,10 +19,7 @@ services:
 
   # ── Web server ───────────────────────────────────────────────────────────────
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: obsidian-publisher:latest
+    image: ghcr.io/ink-vulpes/obsidian-publisher:latest
     container_name: obsidian-web
     restart: unless-stopped
     ports:

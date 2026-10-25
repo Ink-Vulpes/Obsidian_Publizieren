@@ -24,6 +24,45 @@ Ein selbst gehosteter Web-Server, der eine Obsidian-Vault live im Browser render
 
 ---
 
+## Image veröffentlichen (ghcr.io)
+
+Das fertige Docker-Image liegt auf der **GitHub Container Registry** unter `ghcr.io/ink-vulpes/obsidian-publisher`. So wird es gebaut und gepusht:
+
+### Einmalig: GitHub-Token erstellen
+
+Unter **github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)**  
+Benötigte Scopes: `write:packages`, `read:packages`
+
+```bash
+echo "DEIN_TOKEN" | docker login ghcr.io -u Ink-Vulpes --password-stdin
+```
+
+### Image bauen & pushen
+
+```bash
+bash push-image.sh          # baut und pusht als :latest
+bash push-image.sh 1.0.0    # baut und pusht als :1.0.0 + :latest
+```
+
+### Auf dem Server deployen
+
+```bash
+# Einmalig einloggen
+echo "DEIN_TOKEN" | docker login ghcr.io -u Ink-Vulpes --password-stdin
+
+# Image holen und Stack starten
+docker compose pull
+docker compose up -d
+```
+
+Bei einem Update reicht auf dem Server:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+---
+
 ## Schnellstart mit Docker
 
 ### Voraussetzungen
