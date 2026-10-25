@@ -125,6 +125,7 @@ export default class ObsidianPublisher extends Plugin {
 			const diff = await this.syncEngine.computeDiff();
 			new SyncModal(this.app, diff, this.syncEngine, async (errors) => {
 				await this.savePluginData();
+				try { await this.api.reloadVault(); } catch { /* non-critical */ }
 				if (errors.length > 0) {
 					new Notice(`Sync abgeschlossen mit ${errors.length} Fehler(n):\n${errors[0]}`);
 					this.setStatus(`${errors.length} Fehler`);
@@ -148,6 +149,7 @@ export default class ObsidianPublisher extends Plugin {
 				this.setStatus(`${done}/${total}`);
 			});
 			await this.savePluginData();
+			try { await this.api.reloadVault(); } catch { /* non-critical */ }
 			const total = diff.push.length + diff.pull.length + diff.deleteRemote.length + diff.deleteLocal.length;
 			if (errors.length > 0) {
 				new Notice(`Auto-Sync: ${errors.length} Fehler`);
