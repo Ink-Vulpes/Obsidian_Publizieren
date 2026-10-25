@@ -157,11 +157,43 @@ GELB  = "\033[93m"
 ROT   = "\033[91m"
 RESET = "\033[0m"
 FETT  = "\033[1m"
+CYAN  = "\033[96m"
 
 def _colored(text: str, color: str) -> str:
     if sys.stdout.isatty():
         return f"{color}{text}{RESET}"
     return text
+
+
+# ── Fortschrittsbalken ─────────────────────────────────────────────────────────
+
+def _fmt_bytes(n: int) -> str:
+    if n >= 1_073_741_824:
+        return f"{n / 1_073_741_824:.2f} GB"
+    if n >= 1_048_576:
+        return f"{n / 1_048_576:.1f} MB"
+    return f"{n / 1024:.0f} KB"
+
+
+def print_progress(done: int, total: int, done_bytes: int, total_bytes: int,
+                   current: str, errors: int) -> None:
+    """Überschreibt die aktuelle Zeile mit Balken + Statistik."""
+    if not sys.stdout.isatty():
+        return
+    width = 30
+    filled = int(width * done / total) if total else width
+    bar = "█" * filled + "░" * (width - filled)
+    pct = int(100 * done / total) if total else 100
+    name = current[-38:] if len(current) > 38 else current
+    err_str = f"  {_colored(f'{errors} Fehler', ROT)}" if errors else ""
+    line = (
+        f"\r  {_colored(bar, CYAN)}  {pct:3d}%  "
+        f"{done}/{total} Dateien  "
+        f"{_colored(_fmt_bytes(done_bytes), GRÜN)}/{_fmt_bytes(total_bytes)}"
+        f"{err_str}  {name:<38}"
+    )
+    sys.stdout.write(line)
+    sys.stdout.flush()
 
 
 def show_diff(diff: list[dict]) -> None:
@@ -304,28 +336,53 @@ def main() -> None:
             delete_paths = selected_delete
         # else "a" oder Enter → alle
 
+    # Gesamtgröße der hochzuladenden Dateien berechnen
+    upload_sizes = {}
+    for rel in upload_paths:
+        p = vault / Path(rel)
+        try:
+            upload_sizes[rel] = p.stat().st_size
+        except OSError:
+            upload_sizes[rel] = 0
+    total_bytes = sum(upload_sizes.values())
+    total_ops = len(upload_paths) + len(delete_paths)
+
     # Dateien hochladen
     uploaded, errors = 0, 0
+    done_bytes = 0
+    done_ops = 0
+    if upload_paths:
+        print()
     for rel in upload_paths:
         local_path = vault / Path(rel)
-        print(f"  ↑ {rel}", end=" … ", flush=True)
-        if upload_file(server, token, rel, local_path):
-            print("OK")
+        print_progress(done_ops, total_ops, done_bytes, total_bytes, rel, errors)
+        ok = upload_file(server, token, rel, local_path)
+        done_ops += 1
+        done_bytes += upload_sizes.get(rel, 0)
+        if ok:
             uploaded += 1
         else:
-            print("FEHLER")
             errors += 1
+            # Fehler auf separater Zeile ausgeben ohne den Balken zu zerstören
+            sys.stdout.write(f"\n  {_colored('FEHLER', ROT)} {rel}\n")
+            sys.stdout.flush()
+    if upload_paths:
+        print_progress(done_ops, total_ops, done_bytes, total_bytes, "", errors)
 
     # Dateien löschen
     deleted_count = 0
     for rel in delete_paths:
-        print(f"  ✕ {rel}", end=" … ", flush=True)
+        print_progress(done_ops, total_ops, done_bytes, total_bytes, f"[löschen] {rel}", errors)
         if delete_remote(server, token, rel):
-            print("OK")
             deleted_count += 1
         else:
-            print("FEHLER")
             errors += 1
+            sys.stdout.write(f"\n  {_colored('FEHLER', ROT)} löschen: {rel}\n")
+            sys.stdout.flush()
+        done_ops += 1
+    if total_ops:
+        print_progress(total_ops, total_ops, total_bytes, total_bytes, "", errors)
+        print()  # Zeilenumbruch nach dem Balken
 
     # Server-Reload
     if uploaded or deleted_count:
