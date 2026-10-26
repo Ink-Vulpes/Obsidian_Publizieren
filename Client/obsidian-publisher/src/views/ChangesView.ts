@@ -1,6 +1,8 @@
 import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import type { ApiClient } from '../api';
 import type { SyncEngine, SyncDiff, ConflictResolution } from '../sync-engine';
+import { FileDiffModal } from '../modals/FileDiffModal';
+import type { DiffAction } from '../modals/FileDiffModal';
 
 export const CHANGES_VIEW_TYPE = 'obsidian-publisher-changes';
 
@@ -98,10 +100,10 @@ export class ChangesView extends ItemView {
 		if (total === 0) {
 			root.createEl('p', { text: '✓ Vault ist synchronisiert.', cls: 'publisher-changes-synced' });
 		} else {
-			this.renderSection(root, `↑ Hochladen (${diff.push.length})`, diff.push, 'publisher-changes-push');
-			this.renderSection(root, `↓ Herunterladen (${diff.pull.length})`, diff.pull, 'publisher-changes-pull');
-			this.renderSection(root, `✕ Vom Server löschen (${diff.deleteRemote.length})`, diff.deleteRemote, 'publisher-changes-del');
-			this.renderSection(root, `✕ Lokal löschen (${diff.deleteLocal.length})`, diff.deleteLocal, 'publisher-changes-del');
+			this.renderSection(root, `↑ Hochladen (${diff.push.length})`, diff.push, 'publisher-changes-push', 'push');
+			this.renderSection(root, `↓ Herunterladen (${diff.pull.length})`, diff.pull, 'publisher-changes-pull', 'pull');
+			this.renderSection(root, `✕ Vom Server löschen (${diff.deleteRemote.length})`, diff.deleteRemote, 'publisher-changes-del', 'deleteRemote');
+			this.renderSection(root, `✕ Lokal löschen (${diff.deleteLocal.length})`, diff.deleteLocal, 'publisher-changes-del', 'deleteLocal');
 			this.renderConflicts(root, diff.conflicts);
 		}
 
@@ -116,12 +118,16 @@ export class ChangesView extends ItemView {
 		}
 	}
 
-	private renderSection(parent: HTMLElement, label: string, paths: string[], cls: string) {
+	private renderSection(parent: HTMLElement, label: string, paths: string[], cls: string, action: DiffAction) {
 		if (paths.length === 0) return;
 		const section = parent.createEl('div', { cls: 'publisher-changes-section' });
 		section.createEl('div', { text: label, cls: `publisher-changes-section-label ${cls}` });
 		const ul = section.createEl('ul', { cls: 'publisher-changes-filelist' });
-		for (const p of paths) ul.createEl('li', { text: p });
+		for (const p of paths) {
+			const li = ul.createEl('li', { cls: 'publisher-changes-file-item' });
+			const link = li.createEl('span', { text: p, cls: 'publisher-changes-file-link' });
+			link.onclick = () => new FileDiffModal(this.app, p, action, this.api).open();
+		}
 	}
 
 	private renderConflicts(parent: HTMLElement, paths: string[]) {
@@ -134,7 +140,8 @@ export class ChangesView extends ItemView {
 
 		for (const p of paths) {
 			const row = section.createEl('div', { cls: 'publisher-changes-conflict-row' });
-			row.createEl('span', { text: p, cls: 'publisher-changes-conflict-path' });
+			const pathSpan = row.createEl('span', { text: p, cls: 'publisher-changes-conflict-path publisher-changes-file-link' });
+			pathSpan.onclick = () => new FileDiffModal(this.app, p, 'conflict', this.api).open();
 
 			const btns = row.createEl('div', { cls: 'publisher-changes-conflict-btns' });
 			const current = this.resolutions.get(p) ?? 'push';
