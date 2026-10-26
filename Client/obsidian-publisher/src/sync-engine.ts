@@ -2,12 +2,7 @@ import type { App, TFile } from 'obsidian';
 import type { ApiClient, ManifestEntry } from './api';
 
 export interface SyncState {
-	[path: string]: { checksum: string; size: number };
-}
-
-export interface SyncAction {
-	type: 'push' | 'pull' | 'deleteRemote' | 'deleteLocal';
-	path: string;
+	[path: string]: { checksum: string; size: number; mtime?: number };
 }
 
 export interface SyncDiff {
@@ -15,6 +10,14 @@ export interface SyncDiff {
 	pull: string[];
 	deleteRemote: string[];
 	deleteLocal: string[];
+	conflicts: string[];   // both local and server changed since last sync
+}
+
+export type ConflictResolution = 'push' | 'pull' | 'skip';
+
+export interface SyncAction {
+	type: 'push' | 'pull' | 'deleteRemote' | 'deleteLocal';
+	path: string;
 }
 
 async function sha256(buffer: ArrayBuffer): Promise<string> {
@@ -59,6 +62,7 @@ export class SyncEngine {
 		const pull: string[] = [];
 		const deleteRemote: string[] = [];
 		const deleteLocal: string[] = [];
+		const conflicts: string[] = [];
 
 		// Files that exist locally
 		for (const [path, file] of localMap) {
@@ -70,34 +74,25 @@ export class SyncEngine {
 					// Was synced before but gone from server → server deleted it
 					deleteLocal.push(path);
 				} else {
-					// New local file → push
 					push.push(path);
 				}
 			} else {
-				// On server: compare checksums lazily using mtime
-				const localMtime = file.stat.mtime;
-				if (lastSync) {
-					const serverChanged = serverEntry.checksum !== lastSync.checksum;
-					const localMtimePast = lastSync.mtime !== undefined
-						? localMtime <= (lastSync as any).mtime
-						: false;
-					if (serverChanged && localMtimePast) {
-						pull.push(path);
-					} else if (!serverChanged && localMtime > ((lastSync as any).mtime ?? 0) + 1000) {
-						push.push(path);
-					} else if (serverChanged && localMtime > ((lastSync as any).mtime ?? 0) + 1000) {
-						// Both changed → last-write-wins: prefer local
-						push.push(path);
-					}
-					// else: identical, skip
-				} else {
-					// Never synced: compare checksum by reading local
+				const serverChanged = serverEntry.checksum !== lastSync?.checksum;
+				const localMtimeSinceSync = file.stat.mtime > ((lastSync?.mtime ?? 0) + 1000);
+
+				if (!lastSync) {
+					// Never synced: read local checksum and compare
 					const data = await this.app.vault.readBinary(file);
 					const localChecksum = await sha256(data);
-					if (localChecksum !== serverEntry.checksum) {
-						push.push(path);
-					}
+					if (localChecksum !== serverEntry.checksum) push.push(path);
+				} else if (serverChanged && localMtimeSinceSync) {
+					conflicts.push(path);
+				} else if (serverChanged) {
+					pull.push(path);
+				} else if (localMtimeSinceSync) {
+					push.push(path);
 				}
+				// else: identical, skip
 			}
 		}
 
@@ -106,20 +101,19 @@ export class SyncEngine {
 			if (!localMap.has(path)) {
 				const lastSync = this.lastSyncState[path];
 				if (lastSync) {
-					// Was here before, now gone locally → delete from server
 					deleteRemote.push(path);
 				} else {
-					// New on server → pull
 					pull.push(path);
 				}
 			}
 		}
 
-		return { push, pull, deleteRemote, deleteLocal };
+		return { push, pull, deleteRemote, deleteLocal, conflicts };
 	}
 
 	async executeActions(
 		diff: SyncDiff,
+		conflictResolutions: Map<string, ConflictResolution>,
 		onProgress: (msg: string, done: number, total: number) => void,
 	): Promise<{ errors: string[] }> {
 		const actions: SyncAction[] = [
@@ -127,6 +121,12 @@ export class SyncEngine {
 			...diff.pull.map(p => ({ type: 'pull' as const, path: p })),
 			...diff.deleteRemote.map(p => ({ type: 'deleteRemote' as const, path: p })),
 			...diff.deleteLocal.map(p => ({ type: 'deleteLocal' as const, path: p })),
+			// resolve conflicts
+			...diff.conflicts.flatMap(p => {
+				const res = conflictResolutions.get(p) ?? 'push';
+				if (res === 'skip') return [];
+				return [{ type: res as 'push' | 'pull', path: p }];
+			}),
 		];
 
 		const errors: string[] = [];
@@ -156,10 +156,8 @@ export class SyncEngine {
 				if (!ok) throw new Error('Upload fehlgeschlagen');
 				const checksum = await sha256(data);
 				this.lastSyncState[action.path] = {
-					checksum,
-					size: data.byteLength,
-					mtime: file.stat.mtime,
-				} as any;
+					checksum, size: data.byteLength, mtime: file.stat.mtime,
+				};
 				break;
 			}
 			case 'pull': {
@@ -178,7 +176,10 @@ export class SyncEngine {
 					await this.app.vault.createBinary(action.path, data);
 				}
 				const checksum = await sha256(data);
-				this.lastSyncState[action.path] = { checksum, size: data.byteLength } as any;
+				const updated = this.app.vault.getFileByPath(action.path);
+				this.lastSyncState[action.path] = {
+					checksum, size: data.byteLength, mtime: updated?.stat.mtime,
+				};
 				break;
 			}
 			case 'deleteRemote': {
@@ -196,10 +197,11 @@ export class SyncEngine {
 	}
 
 	async syncAll(
+		conflictResolutions: Map<string, ConflictResolution>,
 		onProgress: (msg: string, done: number, total: number) => void,
 	): Promise<{ errors: string[]; diff: SyncDiff }> {
 		const diff = await this.computeDiff();
-		const { errors } = await this.executeActions(diff, onProgress);
+		const { errors } = await this.executeActions(diff, conflictResolutions, onProgress);
 		return { errors, diff };
 	}
 

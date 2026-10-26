@@ -7,6 +7,7 @@ import type { PublisherSettings } from './settings';
 import { LogStore } from './log-store';
 import type { LogEntry } from './log-store';
 import { SyncLogView, SYNC_LOG_VIEW_TYPE } from './views/SyncLogView';
+import { ChangesView, CHANGES_VIEW_TYPE } from './views/ChangesView';
 import { SyncModal } from './modals/SyncModal';
 import { AdminModal } from './modals/AdminModal';
 import { LogModal } from './modals/LogModal';
@@ -36,8 +37,13 @@ export default class ObsidianPublisher extends Plugin {
 		this.syncEngine = new SyncEngine(this.app, this.api);
 		this.syncEngine.loadSyncState(this.syncState);
 
-		// ── Side-panel view ──────────────────────────────────────────────────────
+		// ── Views ────────────────────────────────────────────────────────────────
 		this.registerView(SYNC_LOG_VIEW_TYPE, leaf => new SyncLogView(leaf, this.logStore));
+		this.registerView(CHANGES_VIEW_TYPE, leaf => {
+			const view = new ChangesView(leaf, this.syncEngine, this.api);
+			view.setOnSyncDone(() => this.onSyncCompleted(null));
+			return view;
+		});
 
 		// ── Status bar ───────────────────────────────────────────────────────────
 		this.statusBar = this.addStatusBarItem();
@@ -48,58 +54,46 @@ export default class ObsidianPublisher extends Plugin {
 
 		// ── Ribbon ───────────────────────────────────────────────────────────────
 		this.addRibbonIcon('cloud-upload', 'Publisher synchronisieren', () => this.openSyncModal());
+		this.addRibbonIcon('git-compare', 'Ausstehende Änderungen', () => this.openChangesPanel());
 		this.addRibbonIcon('history', 'Publisher Log', () => this.openLogPanel());
 
 		// ── Commands ─────────────────────────────────────────────────────────────
-		this.addCommand({
-			id: 'sync-now',
-			name: 'Jetzt synchronisieren',
-			callback: () => this.openSyncModal(),
-		});
-
-		this.addCommand({
-			id: 'open-log-panel',
-			name: 'Protokoll-Panel öffnen',
-			callback: () => this.openLogPanel(),
-		});
-
-		this.addCommand({
-			id: 'open-log-modal',
-			name: 'Protokoll-Modal öffnen',
-			callback: () => new LogModal(this.app, this.logStore).open(),
-		});
-
-		this.addCommand({
-			id: 'open-admin',
-			name: 'Admin-Panel öffnen',
-			callback: () => new AdminModal(this.app, this.api).open(),
-		});
-
-		this.addCommand({
-			id: 'sync-silent',
-			name: 'Stille Synchronisierung (ohne Modal)',
-			callback: () => this.syncSilent(),
-		});
+		this.addCommand({ id: 'sync-now', name: 'Jetzt synchronisieren', callback: () => this.openSyncModal() });
+		this.addCommand({ id: 'open-changes', name: 'Ausstehende Änderungen anzeigen', callback: () => this.openChangesPanel() });
+		this.addCommand({ id: 'open-log-panel', name: 'Protokoll-Panel öffnen', callback: () => this.openLogPanel() });
+		this.addCommand({ id: 'open-log-modal', name: 'Protokoll-Modal öffnen', callback: () => new LogModal(this.app, this.logStore).open() });
+		this.addCommand({ id: 'open-admin', name: 'Admin-Panel öffnen', callback: () => new AdminModal(this.app, this.api).open() });
+		this.addCommand({ id: 'sync-silent', name: 'Stille Synchronisierung (ohne Modal)', callback: () => this.syncSilent() });
 
 		// ── Settings tab ─────────────────────────────────────────────────────────
 		this.addSettingTab(new PublisherSettingTab(this.app, this));
 
 		// ── Auto-sync ────────────────────────────────────────────────────────────
 		if (this.settings.autoSync) this.startAutoSync();
-
-		if (this.settings.syncOnStartup) {
-			window.setTimeout(() => this.syncSilent(), 2000);
-		}
-
+		if (this.settings.syncOnStartup) window.setTimeout(() => this.syncSilent(), 2000);
 		window.setTimeout(() => this.registerDevice(), 5000);
 	}
 
 	onunload() {
 		this.stopAutoSync();
 		this.app.workspace.detachLeavesOfType(SYNC_LOG_VIEW_TYPE);
+		this.app.workspace.detachLeavesOfType(CHANGES_VIEW_TYPE);
 	}
 
-	// ── Log panel ─────────────────────────────────────────────────────────────
+	// ── Panels ────────────────────────────────────────────────────────────────
+
+	async openChangesPanel() {
+		const existing = this.app.workspace.getLeavesOfType(CHANGES_VIEW_TYPE);
+		if (existing.length > 0) {
+			this.app.workspace.revealLeaf(existing[0]);
+			return;
+		}
+		const leaf = this.app.workspace.getRightLeaf(false);
+		if (leaf) {
+			await leaf.setViewState({ type: CHANGES_VIEW_TYPE, active: true });
+			this.app.workspace.revealLeaf(leaf);
+		}
+	}
 
 	async openLogPanel() {
 		const existing = this.app.workspace.getLeavesOfType(SYNC_LOG_VIEW_TYPE);
@@ -112,6 +106,21 @@ export default class ObsidianPublisher extends Plugin {
 			await leaf.setViewState({ type: SYNC_LOG_VIEW_TYPE, active: true });
 			this.app.workspace.revealLeaf(leaf);
 		}
+	}
+
+	private refreshChangesPanel() {
+		for (const leaf of this.app.workspace.getLeavesOfType(CHANGES_VIEW_TYPE)) {
+			(leaf.view as ChangesView).refresh();
+		}
+	}
+
+	// ── Sync lifecycle ────────────────────────────────────────────────────────
+
+	private async onSyncCompleted(entry: LogEntry | null) {
+		if (entry) this.logStore.add(entry);
+		await this.savePluginData();
+		try { await this.api.reloadVault(); } catch { /* non-critical */ }
+		this.refreshChangesPanel();
 	}
 
 	// ── Settings & data ───────────────────────────────────────────────────────
@@ -131,13 +140,12 @@ export default class ObsidianPublisher extends Plugin {
 	}
 
 	private async savePluginData() {
-		const data: PluginData = {
+		await this.saveData({
 			settings: this.settings,
 			syncState: this.syncEngine?.getSyncState() ?? this.syncState,
 			deviceId: this.deviceId,
 			logEntries: this.logStore.serialize(),
-		};
-		await this.saveData(data);
+		} as PluginData);
 	}
 
 	// ── Auto-sync ─────────────────────────────────────────────────────────────
@@ -166,18 +174,14 @@ export default class ObsidianPublisher extends Plugin {
 		try {
 			const diff = await this.syncEngine.computeDiff();
 			new SyncModal(this.app, diff, this.syncEngine, async (errors) => {
-				this.logStore.add({
+				await this.onSyncCompleted({
 					timestamp: Date.now(),
-					push: diff.push,
-					pull: diff.pull,
-					deleteRemote: diff.deleteRemote,
-					deleteLocal: diff.deleteLocal,
+					push: diff.push, pull: diff.pull,
+					deleteRemote: diff.deleteRemote, deleteLocal: diff.deleteLocal,
 					errors,
 				});
-				await this.savePluginData();
-				try { await this.api.reloadVault(); } catch { /* non-critical */ }
 				if (errors.length > 0) {
-					new Notice(`Sync abgeschlossen mit ${errors.length} Fehler(n):\n${errors[0]}`);
+					new Notice(`Sync: ${errors.length} Fehler\n${errors[0]}`);
 					this.setStatus(`${errors.length} Fehler`);
 				} else {
 					new Notice('Synchronisierung abgeschlossen.');
@@ -195,28 +199,23 @@ export default class ObsidianPublisher extends Plugin {
 		if (!this.settings.serverUrl || !this.settings.username) return;
 		this.setStatus('synchronisiert …');
 		try {
-			const { errors, diff } = await this.syncEngine.syncAll((_msg, done, total) => {
-				this.setStatus(`${done}/${total}`);
-			});
-			this.logStore.add({
+			const { errors, diff } = await this.syncEngine.syncAll(
+				new Map(),
+				(_msg, done, total) => { this.setStatus(`${done}/${total}`); },
+			);
+			await this.onSyncCompleted({
 				timestamp: Date.now(),
-				push: diff.push,
-				pull: diff.pull,
-				deleteRemote: diff.deleteRemote,
-				deleteLocal: diff.deleteLocal,
+				push: diff.push, pull: diff.pull,
+				deleteRemote: diff.deleteRemote, deleteLocal: diff.deleteLocal,
 				errors,
 			});
-			await this.savePluginData();
-			try { await this.api.reloadVault(); } catch { /* non-critical */ }
-			const total = diff.push.length + diff.pull.length + diff.deleteRemote.length + diff.deleteLocal.length;
+			const total = diff.push.length + diff.pull.length +
+				diff.deleteRemote.length + diff.deleteLocal.length;
 			if (errors.length > 0) {
 				new Notice(`Auto-Sync: ${errors.length} Fehler`);
 				this.setStatus(`${errors.length} Fehler`);
-			} else if (total > 0) {
-				new Notice(`Auto-Sync: ${total} Dateien synchronisiert`);
-				this.setStatus('synchronisiert');
 			} else {
-				this.setStatus('synchronisiert');
+				this.setStatus(total > 0 ? 'synchronisiert' : 'bereit');
 			}
 		} catch (e) {
 			new Notice('Auto-Sync-Fehler: ' + (e as Error).message);
@@ -229,9 +228,7 @@ export default class ObsidianPublisher extends Plugin {
 	private async registerDevice() {
 		if (!this.settings.serverUrl || !this.settings.username) return;
 		const name = this.settings.deviceName || `Obsidian (${navigator.platform})`;
-		try {
-			await this.api.registerDevice(this.deviceId, name);
-		} catch { /* silent */ }
+		try { await this.api.registerDevice(this.deviceId, name); } catch { /* silent */ }
 	}
 
 	private generateDeviceId(): string {
@@ -241,9 +238,5 @@ export default class ObsidianPublisher extends Plugin {
 		});
 	}
 
-	// ── Status bar ────────────────────────────────────────────────────────────
-
-	private setStatus(msg: string) {
-		this.statusBar.setText(`☁ ${msg}`);
-	}
+	private setStatus(msg: string) { this.statusBar.setText(`☁ ${msg}`); }
 }

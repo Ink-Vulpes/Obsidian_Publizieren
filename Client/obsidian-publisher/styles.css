@@ -115,6 +115,87 @@
   margin-bottom: 6px;
 }
 
+/* ── Changes Panel ──────────────────────────────────────────────────────── */
+
+.publisher-changes-root { padding: 10px 12px; display: flex; flex-direction: column; height: 100%; }
+
+.publisher-changes-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+.publisher-changes-title { font-weight: 600; font-size: 14px; }
+.publisher-icon-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 16px; color: var(--text-muted); padding: 0 4px; line-height: 1;
+}
+.publisher-icon-btn:hover { color: var(--text-normal); }
+
+.publisher-changes-hint { color: var(--text-muted); font-style: italic; font-size: 13px; }
+.publisher-changes-error { color: var(--color-red); font-size: 13px; }
+.publisher-changes-synced { color: var(--color-green); font-weight: 600; font-size: 13px; }
+
+.publisher-changes-section { margin-bottom: 10px; }
+.publisher-changes-section-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; margin-bottom: 4px;
+}
+.publisher-changes-push { color: var(--color-green); }
+.publisher-changes-pull { color: var(--color-blue); }
+.publisher-changes-del  { color: var(--color-red); }
+.publisher-changes-conflict { color: var(--color-orange); }
+
+.publisher-changes-filelist {
+  margin: 0 0 0 14px; padding: 0;
+  font-size: 11px; font-family: var(--font-monospace);
+  word-break: break-all; list-style: disc;
+}
+.publisher-changes-filelist li { margin: 1px 0; }
+
+/* Conflict rows */
+.publisher-changes-conflict-row {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 4px 0; border-bottom: 1px solid var(--background-modifier-border-hover);
+  flex-wrap: wrap;
+}
+.publisher-changes-conflict-path {
+  flex: 1; font-size: 11px; font-family: var(--font-monospace);
+  word-break: break-all; min-width: 0;
+}
+.publisher-changes-conflict-btns { display: flex; gap: 3px; flex-shrink: 0; }
+
+/* Conflict buttons (panel + modal) */
+.publisher-conflict-btn {
+  font-size: 10px; padding: 1px 7px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--background-modifier-border);
+  background: none; color: var(--text-muted);
+}
+.publisher-conflict-btn:hover { background: var(--background-modifier-hover); }
+.publisher-conflict-btn.active {
+  background: var(--interactive-accent); color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* Modal conflict rows */
+.publisher-conflict-modal-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0; border-bottom: 1px solid var(--background-modifier-border-hover);
+  flex-wrap: wrap;
+}
+.publisher-conflict-modal-path {
+  flex: 1; font-size: 12px; font-family: var(--font-monospace);
+  word-break: break-all; min-width: 0;
+}
+.publisher-conflict-modal-btns { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* Footer sync button */
+.publisher-changes-footer { margin-top: auto; padding-top: 10px; flex-shrink: 0; }
+.publisher-changes-sync-btn { width: 100%; }
+
 /* ── Sync Log View & Modal ──────────────────────────────────────────────── */
 
 .publisher-log-root { padding: 10px 12px; }
