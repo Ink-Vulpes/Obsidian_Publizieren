@@ -213,11 +213,9 @@ pub struct FileManifestEntry {
 
 pub async fn file_manifest(
     State(state): State<AppState>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(_current_user): Extension<CurrentUser>,
 ) -> Json<Vec<FileManifestEntry>> {
-    if !current_user.can_upload && !current_user.is_admin {
-        return Json(vec![]);
-    }
+    // All authenticated users may read the manifest (upload/delete are separately guarded).
 
     let vault_root = PathBuf::from(&state.config.server.vault_path);
     let mut entries = vec![];

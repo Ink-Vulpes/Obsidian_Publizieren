@@ -96,15 +96,13 @@ export class SyncEngine {
 			}
 		}
 
-		// Files that exist on server but not locally
+		// Files that exist on server but not locally → always offer as download.
+		// (If the user explicitly wants to delete them from the server, they can
+		// deselect the file and use a future delete action — but auto-suggesting
+		// "delete from server" when a file is simply missing locally is too risky.)
 		for (const [path] of serverMap) {
 			if (!localMap.has(path)) {
-				const lastSync = this.lastSyncState[path];
-				if (lastSync) {
-					deleteRemote.push(path);
-				} else {
-					pull.push(path);
-				}
+				pull.push(path);
 			}
 		}
 
