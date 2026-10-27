@@ -3,7 +3,10 @@ server:
   vault_path: "/vault"
   site_title: "My Digital Garden"
   site_description: "A collection of interconnected notes"
+  # Local development:
   base_url: "http://localhost:3000"
+  # Production with HTTPS (set your domain in Caddyfile too):
+  # base_url: "https://deine-domain.de"
 
 database:
   # Format: mysql://user:password@host:port/database

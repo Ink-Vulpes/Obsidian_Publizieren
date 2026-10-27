@@ -1,0 +1,13 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddyfile — Obsidian Publisher
+#
+# Replace "deine-domain.de" with your actual domain.
+# Caddy fetches a Let's Encrypt certificate automatically on first start.
+#
+# Local development (no domain):
+#   Use "localhost" instead — Caddy generates a self-signed cert.
+# ─────────────────────────────────────────────────────────────────────────────
+
+deine-domain.de {
+    reverse_proxy web:3000
+}

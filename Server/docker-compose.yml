@@ -2,15 +2,36 @@
 # Obsidian Publisher Stack
 #
 # Services:
-#   web   – Rust web server (port 3000)
+#   caddy – Reverse proxy, handles HTTPS (ports 80 + 443)
+#   web   – Rust web server (internal port 3000, not exposed)
 #   mysql – MySQL 8 for user/session/permission data
 #
-# Quick start:
+# Quick start (with HTTPS):
 #   1. Copy config.yml.example to config.yml and adjust settings.
-#   2. docker compose up -d
+#   2. Edit Caddyfile: replace "deine-domain.de" with your domain.
+#   3. Set base_url in config.yml to "https://deine-domain.de".
+#   4. docker compose up -d
+#
+# Local development (no domain, no HTTPS):
+#   Set WEB_PORT=3000 in .env and comment out the caddy service.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
+
+  # ── Caddy (reverse proxy + automatic HTTPS) ──────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: obsidian-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
 
   # ── Web server ───────────────────────────────────────────────────────────────
   web:
@@ -20,8 +41,10 @@ services:
       dockerfile: Dockerfile
     container_name: obsidian-web
     restart: unless-stopped
+    # Port only exposed locally for direct access / development.
+    # In production Caddy handles traffic on 80/443.
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "${WEB_PORT:-127.0.0.1:3000}:3000"
     volumes:
       - vault-data:/vault
       - ./static:/app/static:ro
@@ -62,11 +85,15 @@ volumes:
     driver: local
   mysql-data:
     driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
+    driver: local
 
 # ─────────────────────────────────────────────────────────────────────────────
-# .env variables (create a .env file in project root):
+# .env variables (create a .env file in this directory):
 #
-#   WEB_PORT=3000
+#   WEB_PORT=127.0.0.1:3000     # default: only localhost; set to 3000 for LAN access
 #   MYSQL_ROOT_PASSWORD=a_strong_root_pw
 #   MYSQL_PASS=a_strong_db_pw
 #   RUST_LOG=info
