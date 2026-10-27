@@ -32,7 +32,7 @@ export class PublisherSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl('h2', { text: 'Obsidian Publisher' });
+		containerEl.createEl('h2', { text: 'Publizieren' });
 
 		// ── Server ──────────────────────────────────────────────────────────────
 		containerEl.createEl('h3', { text: 'Server' });
