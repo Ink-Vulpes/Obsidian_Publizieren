@@ -12,7 +12,7 @@ export interface PublisherSettings {
 }
 
 export const DEFAULT_SETTINGS: PublisherSettings = {
-	serverUrl: 'http://localhost:3000',
+	serverUrl: 'https://localhost:3000',
 	username: '',
 	password: '',
 	autoSync: false,

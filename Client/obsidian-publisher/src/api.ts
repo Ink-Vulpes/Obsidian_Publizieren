@@ -34,8 +34,16 @@ export class ApiClient {
 		this.token = null;
 	}
 
+	private normalizeBase(): string {
+		let base = this.settings.serverUrl.trim().replace(/\/$/, '');
+		if (base && !base.match(/^https?:\/\//i)) {
+			base = 'https://' + base;
+		}
+		return base;
+	}
+
 	private url(path: string): string {
-		return `${this.settings.serverUrl.replace(/\/$/, '')}${path}`;
+		return `${this.normalizeBase()}${path}`;
 	}
 
 	async login(username: string, password: string): Promise<string> {
