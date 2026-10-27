@@ -89,22 +89,19 @@ export class AdminModal extends Modal {
 			{ key: 'folder_restriction', label: 'Ordner-Einschränkung' },
 		];
 
-		const permsEl = card.createEl('div', { cls: 'publisher-perms' });
-		const state = { ...user.permissions };
-
-		for (const { key, label } of permsMap) {
-			const row = permsEl.createEl('label', { cls: 'publisher-perm-row' });
-			const cb = row.createEl('input');
-			cb.type = 'checkbox';
-			cb.checked = user.is_admin ? true : state[key];
-			cb.disabled = user.is_admin;
-			if (!user.is_admin) {
-				cb.onchange = () => { (state as any)[key] = cb.checked; };
-			}
-			row.appendText(' ' + label);
-		}
-
 		if (!user.is_admin) {
+			const permsEl = card.createEl('div', { cls: 'publisher-perms' });
+			const state = { ...user.permissions };
+
+			for (const { key, label } of permsMap) {
+				const row = permsEl.createEl('label', { cls: 'publisher-perm-row' });
+				const cb = row.createEl('input');
+				cb.type = 'checkbox';
+				cb.checked = state[key];
+				cb.onchange = () => { (state as any)[key] = cb.checked; };
+				row.appendText(' ' + label);
+			}
+
 			const saveBtn = card.createEl('button', { text: 'Speichern', cls: 'mod-cta' });
 			saveBtn.style.cssText = 'margin-top:8px;font-size:12px;padding:3px 10px;';
 			saveBtn.onclick = async () => {
