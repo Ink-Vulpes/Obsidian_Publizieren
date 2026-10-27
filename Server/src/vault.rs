@@ -27,6 +27,9 @@ pub struct NoteEntry {
     pub kind: NoteKind,
     pub tags: Vec<String>,
     pub links_to: Vec<String>,
+    /// true when publish_field is empty (no filter) or when the note's frontmatter
+    /// has publish_field: true.
+    pub is_published: bool,
 }
 
 /// Extensions that are served as vault assets (not rendered as notes).
@@ -52,7 +55,8 @@ pub struct Vault {
 }
 
 impl Vault {
-    pub fn load(root: &str) -> anyhow::Result<Self> {
+    /// `publish_field`: frontmatter key to check for `true`; empty string = no filter (all visible).
+    pub fn load(root: &str, publish_field: &str) -> anyhow::Result<Self> {
         let root = PathBuf::from(root);
         if !root.exists() {
             std::fs::create_dir_all(&root)?;
@@ -138,10 +142,23 @@ impl Vault {
                 (vec![], vec![])
             };
 
-            if kind == NoteKind::Markdown {
+            let is_published = if publish_field.is_empty() {
+                true
+            } else if kind == NoteKind::Markdown {
                 if let Ok(content) = std::fs::read_to_string(path) {
                     let plain = strip_markdown(&content);
-                    search_index.insert(slug.clone(), plain);
+                    search_index.insert(slug.clone(), plain.clone());
+                    extract_frontmatter_bool(&content, publish_field)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if kind == NoteKind::Markdown && !search_index.contains_key(&slug) {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    search_index.insert(slug.clone(), strip_markdown(&content));
                 }
             }
 
@@ -156,6 +173,7 @@ impl Vault {
                     kind,
                     tags,
                     links_to,
+                    is_published,
                 },
             );
         }
@@ -302,6 +320,20 @@ pub fn extract_frontmatter(content: &str) -> Option<&str> {
     let after = c.get(3..)?;
     let end = after.find("\n---")?;
     Some(&after[..end])
+}
+
+/// Returns true when the frontmatter contains `field: true` (case-insensitive value).
+pub fn extract_frontmatter_bool(content: &str, field: &str) -> bool {
+    let Some(fm) = extract_frontmatter(content) else { return false };
+    let prefix = format!("{}:", field);
+    for line in fm.lines() {
+        let trimmed = line.trim();
+        if trimmed.to_lowercase().starts_with(&prefix.to_lowercase()) {
+            let value = trimmed[prefix.len()..].trim().to_lowercase();
+            return value == "true";
+        }
+    }
+    false
 }
 
 fn strip_markdown(content: &str) -> String {

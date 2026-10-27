@@ -55,6 +55,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
     for sql in &[
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sync.sql"),
+        include_str!("../migrations/003_settings.sql"),
     ] {
         for stmt in sql.split(";\n") {
             let s = stmt.trim();
@@ -370,6 +371,29 @@ pub async fn set_blacklist(pool: &MySqlPool, slugs: &[String], added_by: u32) ->
             .execute(pool)
             .await?;
     }
+    Ok(())
+}
+
+// ── App settings ─────────────────────────────────────────────────────────────
+
+pub async fn get_setting(pool: &MySqlPool, key: &str) -> anyhow::Result<Option<String>> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT `value` FROM app_settings WHERE `key` = ?")
+            .bind(key)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.map(|(v,)| v))
+}
+
+pub async fn set_setting(pool: &MySqlPool, key: &str, value: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO app_settings (`key`, `value`) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+    )
+    .bind(key)
+    .bind(value)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

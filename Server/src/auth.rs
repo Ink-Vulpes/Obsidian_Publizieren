@@ -48,6 +48,7 @@ pub async fn auth_layer(
     let is_public = path == "/login"
         || path == "/health"
         || path == "/api/auth/token"
+        || path == "/auto-login"
         || path.starts_with("/register/")
         || path.starts_with("/static/");
 

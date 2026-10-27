@@ -216,4 +216,26 @@ export class ApiClient {
 			body: JSON.stringify({ whitelist, blacklist }),
 		});
 	}
+
+	async adminGetSettings(): Promise<{ publish_field: string }> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/admin/settings'), {
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Einstellungen nicht verfügbar');
+		return resp.json();
+	}
+
+	async adminSetSettings(settings: { publish_field: string }): Promise<void> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/admin/settings'), {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify(settings),
+		});
+		if (!resp.ok) throw new Error('Einstellungen konnten nicht gespeichert werden');
+	}
 }

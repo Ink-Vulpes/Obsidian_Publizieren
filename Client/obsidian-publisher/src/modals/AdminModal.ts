@@ -1,7 +1,7 @@
 import { App, Modal, Notice } from 'obsidian';
 import type { ApiClient, UserWithPermissions } from '../api';
 
-type Tab = 'users' | 'invite' | 'lists';
+type Tab = 'users' | 'invite' | 'lists' | 'settings';
 
 export class AdminModal extends Modal {
 	private api: ApiClient;
@@ -30,6 +30,7 @@ export class AdminModal extends Modal {
 			{ id: 'users', label: 'Benutzer' },
 			{ id: 'invite', label: 'Einladung' },
 			{ id: 'lists', label: 'White-/Blacklist' },
+			{ id: 'settings', label: 'Einstellungen' },
 		];
 
 		for (const t of tabs) {
@@ -45,9 +46,10 @@ export class AdminModal extends Modal {
 
 		// ── Tab body ────────────────────────────────────────────────────────────
 		switch (this.activeTab) {
-			case 'users':  this.renderUsers(body); break;
-			case 'invite': this.renderInvite(body); break;
-			case 'lists':  this.renderLists(body); break;
+			case 'users':    this.renderUsers(body); break;
+			case 'invite':   this.renderInvite(body); break;
+			case 'lists':    this.renderLists(body); break;
+			case 'settings': this.renderSettings(body); break;
 		}
 	}
 
@@ -200,6 +202,49 @@ export class AdminModal extends Modal {
 				try {
 					await this.api.adminSetLists(wl, bl);
 					new Notice('Listen gespeichert');
+					saveBtn.setText('✓ Gespeichert');
+				} catch (e) {
+					new Notice('Fehler: ' + (e as Error).message);
+					saveBtn.setText('Fehler');
+				}
+				setTimeout(() => { saveBtn.setText('Speichern').disabled = false; }, 3000);
+			};
+		}).catch(e => {
+			loading.setText('Fehler: ' + (e as Error).message);
+			loading.style.color = 'var(--color-red)';
+		});
+	}
+
+	// ── Settings tab ───────────────────────────────────────────────────────────
+
+	private renderSettings(parent: HTMLElement) {
+		const loading = parent.createEl('p', { text: 'Lade Einstellungen …', cls: 'publisher-progress' });
+
+		this.api.adminGetSettings().then(({ publish_field }) => {
+			loading.remove();
+
+			parent.createEl('p', {
+				text: 'Lege fest, welches Frontmatter-Feld als Veröffentlichungsschalter gilt.',
+			}).style.fontSize = '13px';
+
+			parent.createEl('label', { text: 'Publish-Feld (Frontmatter-Key):' });
+			const input = parent.createEl('input');
+			input.type = 'text';
+			input.value = publish_field;
+			input.placeholder = 'z. B. published';
+			input.style.cssText = 'display:block;width:100%;margin:6px 0 4px 0;padding:5px 8px;font-size:13px;border-radius:4px;border:1px solid var(--background-modifier-border);background:var(--background-secondary);color:var(--text-normal);';
+
+			parent.createEl('p', {
+				text: 'Leer lassen, um alle Notizen anzuzeigen (kein Filter). Wenn gesetzt, werden nur Notizen mit diesem Feld = true für nicht-Admins angezeigt.',
+				cls: 'publisher-progress',
+			});
+
+			const saveBtn = parent.createEl('button', { text: 'Speichern', cls: 'mod-cta' });
+			saveBtn.onclick = async () => {
+				saveBtn.setText('…').disabled = true;
+				try {
+					await this.api.adminSetSettings({ publish_field: input.value.trim() });
+					new Notice('Einstellungen gespeichert');
 					saveBtn.setText('✓ Gespeichert');
 				} catch (e) {
 					new Notice('Fehler: ' + (e as Error).message);

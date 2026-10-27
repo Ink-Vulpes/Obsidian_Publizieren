@@ -85,6 +85,45 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
     (jar.remove(removal), Redirect::to("/login")).into_response()
 }
 
+// ── Auto-login via bearer token ───────────────────────────────────────────────
+// The Obsidian plugin calls /auto-login?token=<bearer>&next=/ to get a session
+// cookie without going through the login form.
+
+#[derive(Deserialize)]
+pub struct AutoLoginQuery {
+    pub token: String,
+    pub next: Option<String>,
+}
+
+pub async fn auto_login(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Query(params): Query<AutoLoginQuery>,
+) -> Response {
+    // Validate the bearer token — it's the same as a session token in the DB.
+    match crate::db::get_session_user(&state.db, &params.token).await {
+        Ok(Some((user, _perms, _folders))) => {
+            tracing::info!("auto_login: {} authenticated via token", user.username);
+        }
+        _ => {
+            return Redirect::to("/login").into_response();
+        }
+    }
+
+    let mut c = Cookie::new(SESSION_COOKIE, params.token);
+    c.set_http_only(true);
+    c.set_path("/");
+    c.set_same_site(SameSite::Lax);
+    c.set_max_age(Duration::hours(state.config.auth.session_duration_hours));
+
+    let redirect_to = params
+        .next
+        .filter(|s| !s.is_empty() && s.starts_with('/'))
+        .unwrap_or_else(|| "/".to_string());
+
+    (jar.add(c), Redirect::to(&redirect_to)).into_response()
+}
+
 fn render_login(state: &AppState, error: &str, next: &str, registered: bool) -> Response {
     let mut ctx = tera::Context::new();
     ctx.insert("site_title", &state.config.server.site_title);

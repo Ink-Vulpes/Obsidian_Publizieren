@@ -298,6 +298,56 @@ pub async fn api_set_lists(
     Json(serde_json::json!({"ok": true})).into_response()
 }
 
+// ── App settings API ──────────────────────────────────────────────────────────
+
+pub async fn api_get_settings(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Nur Admins"}))).into_response();
+    }
+    let publish_field = state.publish_field.read().unwrap().clone();
+    Json(serde_json::json!({ "publish_field": publish_field })).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct SetSettingsBody {
+    pub publish_field: String,
+}
+
+pub async fn api_set_settings(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    ExtractJson(body): ExtractJson<SetSettingsBody>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Nur Admins"}))).into_response();
+    }
+
+    // Persist
+    if let Err(e) = crate::db::set_setting(&state.db, "publish_field", &body.publish_field).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+    }
+
+    // Update in-memory cache and reload vault with new field
+    {
+        let mut pf = state.publish_field.write().unwrap();
+        *pf = body.publish_field.clone();
+    }
+    let pf = body.publish_field.clone();
+    match crate::vault::Vault::load(&state.config.server.vault_path, &pf) {
+        Ok(new_vault) => {
+            *state.vault.write().await = new_vault;
+        }
+        Err(e) => {
+            tracing::warn!("Vault reload after settings change failed: {}", e);
+        }
+    }
+
+    Json(serde_json::json!({"ok": true})).into_response()
+}
+
 fn require_lists(user: &CurrentUser) -> Result<(), Response> {
     if user.can_manage_lists || user.is_admin {
         Ok(())

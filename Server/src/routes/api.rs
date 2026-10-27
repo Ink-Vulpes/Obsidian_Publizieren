@@ -14,17 +14,20 @@ use crate::{auth::CurrentUser, AppState};
 
 // ── Note visibility helper ────────────────────────────────────────────────────
 
-fn note_visible(slug: &str, user: &CurrentUser, state: &AppState) -> bool {
+fn note_visible(note: &crate::vault::NoteEntry, user: &CurrentUser, state: &AppState) -> bool {
     let wl = state.whitelist.read().unwrap();
     let bl = state.blacklist.read().unwrap();
 
-    if bl.contains(slug) {
+    if bl.contains(&note.slug) {
         return false;
     }
-    if !wl.is_empty() && !wl.contains(slug) {
+    if !wl.is_empty() && !wl.contains(&note.slug) {
         return false;
     }
-    user.can_see_note(slug)
+    if !user.is_admin && !note.is_published {
+        return false;
+    }
+    user.can_see_note(&note.slug)
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -58,7 +61,7 @@ pub async fn search(
     let mut results: Vec<SearchResult> = vec![];
 
     for note in vault.notes.values() {
-        if !note_visible(&note.slug, &current_user, &state) {
+        if !note_visible(note, &current_user, &state) {
             continue;
         }
         if note.title.to_lowercase().contains(&q) {
@@ -76,7 +79,8 @@ pub async fn search(
         if seen.contains(slug) {
             continue;
         }
-        if !note_visible(slug, &current_user, &state) {
+        let Some(note_entry) = vault.notes.get(slug) else { continue };
+        if !note_visible(note_entry, &current_user, &state) {
             continue;
         }
         let lower = text.to_lowercase();
@@ -87,16 +91,13 @@ pub async fn search(
             let start = text.char_indices().map(|(i, _)| i).filter(|&i| i <= start).last().unwrap_or(0);
             let end = text.char_indices().map(|(i, _)| i).find(|&i| i >= end).unwrap_or(text.len());
             let excerpt = format!("…{}…", text[start..end].trim());
-
-            if let Some(note) = vault.notes.get(slug) {
-                seen.insert(slug.clone());
-                results.push(SearchResult {
-                    title: note.title.clone(),
-                    slug: slug.clone(),
-                    excerpt,
-                    tags: note.tags.clone(),
-                });
-            }
+            seen.insert(slug.clone());
+            results.push(SearchResult {
+                title: note_entry.title.clone(),
+                slug: slug.clone(),
+                excerpt,
+                tags: note_entry.tags.clone(),
+            });
         }
     }
 
@@ -135,7 +136,7 @@ pub async fn graph_data(
     let nodes: Vec<GraphNode> = vault
         .notes
         .values()
-        .filter(|n| note_visible(&n.slug, &current_user, &state))
+        .filter(|n| note_visible(n, &current_user, &state))
         .map(|n| {
             let backlink_count = vault.backlinks.get(&n.slug).map(|v| v.len()).unwrap_or(0);
             GraphNode {
@@ -180,7 +181,8 @@ pub async fn file_list(
 // ── Vault reload ──────────────────────────────────────────────────────────────
 
 pub async fn reload_vault(State(state): State<AppState>) -> Json<serde_json::Value> {
-    match crate::vault::Vault::load(&state.config.server.vault_path) {
+    let pf = state.publish_field.read().unwrap().clone();
+    match crate::vault::Vault::load(&state.config.server.vault_path, &pf) {
         Ok(new_vault) => {
             let count = new_vault.notes.len();
             let mut vault = state.vault.write().await;

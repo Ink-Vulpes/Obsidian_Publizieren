@@ -25,6 +25,8 @@ pub struct AppState {
     pub whitelist: Arc<RwLock<HashSet<String>>>,
     /// Global blacklist cache
     pub blacklist: Arc<RwLock<HashSet<String>>>,
+    /// Frontmatter field checked for publish flag; empty = no filter
+    pub publish_field: Arc<RwLock<String>>,
 }
 
 #[tokio::main]
@@ -60,9 +62,16 @@ async fn main() -> anyhow::Result<()> {
             .expect("Failed to create admin user");
     }
 
+    // ── Settings ──────────────────────────────────────────────────────────────
+    let publish_field_str = db::get_setting(&db, "publish_field")
+        .await
+        .unwrap_or_default()
+        .unwrap_or_else(|| "published".to_string());
+    let publish_field: Arc<RwLock<String>> = Arc::new(RwLock::new(publish_field_str.clone()));
+
     // ── Vault ─────────────────────────────────────────────────────────────────
     tracing::info!("Loading vault from {}", config.server.vault_path);
-    let vault = Vault::load(&config.server.vault_path).expect("Failed to load vault");
+    let vault = Vault::load(&config.server.vault_path, &publish_field_str).expect("Failed to load vault");
     let vault = Arc::new(AsyncRwLock::new(vault));
 
     // ── Whitelist / Blacklist cache ───────────────────────────────────────────
@@ -76,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
     // ── Templates ─────────────────────────────────────────────────────────────
     let tera = Arc::new(build_templates()?);
 
-    let state = AppState { vault, config: config.clone(), tera, db, whitelist, blacklist };
+    let state = AppState { vault, config: config.clone(), tera, db, whitelist, blacklist, publish_field };
 
     // ── Router ────────────────────────────────────────────────────────────────
     let app = Router::new()
@@ -85,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
         // Auth (no auth required)
         .route("/login", get(routes::auth::login_page).post(routes::auth::login))
         .route("/logout", post(routes::auth::logout))
+        .route("/auto-login", get(routes::auth::auto_login))
         .route("/register/:token", get(routes::auth::register_page).post(routes::auth::register))
         // Static files (no auth)
         .nest_service("/static", ServeDir::new("static"))
@@ -106,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/users", get(routes::admin::api_list_users))
         .route("/api/admin/users/:id/permissions", post(routes::admin::api_update_permissions))
         .route("/api/admin/lists", get(routes::admin::api_get_lists).post(routes::admin::api_set_lists))
+        .route("/api/admin/settings", get(routes::admin::api_get_settings).post(routes::admin::api_set_settings))
         .route("/admin", get(routes::admin::admin_page))
         .route("/admin/invite", post(routes::admin::create_invite))
         .route("/admin/users/:id/permissions", post(routes::admin::update_permissions))

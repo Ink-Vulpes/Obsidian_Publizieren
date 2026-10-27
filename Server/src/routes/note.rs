@@ -15,15 +15,16 @@ pub async fn index(
     let wl = state.whitelist.read().unwrap();
     let bl = state.blacklist.read().unwrap();
 
+    let visible = |n: &&crate::vault::NoteEntry| {
+        !bl.contains(&n.slug)
+            && (wl.is_empty() || wl.contains(&n.slug))
+            && current_user.can_see_note(&n.slug)
+            && (current_user.is_admin || n.is_published)
+    };
     let first = ["index", "home", "readme"]
         .iter()
-        .find_map(|t| vault.find_by_title(t))
-        .or_else(|| vault.notes.values().next())
-        .filter(|n| {
-            !bl.contains(&n.slug)
-                && (wl.is_empty() || wl.contains(&n.slug))
-                && current_user.can_see_note(&n.slug)
-        })
+        .find_map(|t| vault.find_by_title(t).filter(|n| visible(&n)))
+        .or_else(|| vault.notes.values().find(|n| visible(n)))
         .map(|n| n.slug.clone());
     drop(wl);
     drop(bl);
@@ -90,6 +91,10 @@ pub async fn render_note(
     if !current_user.can_see_note(&entry.slug) {
         drop(vault);
         return not_found(&state);
+    }
+    if !current_user.is_admin && !entry.is_published {
+        drop(vault);
+        return access_denied(&state);
     }
 
     let kind = entry.kind.clone();
@@ -254,6 +259,8 @@ pub fn build_file_tree_json_filtered(
         if !wl.is_empty() && !wl.contains(&note.slug) { continue; }
         // Apply user folder filter
         if !user.can_see_note(&note.slug) { continue; }
+        // Only show published notes to non-admins
+        if !user.is_admin && !note.is_published { continue; }
 
         let parts: Vec<&str> = note.path.split('/').collect();
         let kind = match note.kind {
@@ -268,13 +275,33 @@ pub fn build_file_tree_json_filtered(
 
 fn not_found(state: &AppState) -> Response {
     let html = format!(
-        r#"<!DOCTYPE html><html><head><title>Not Found — {}</title>
+        r#"<!DOCTYPE html><html><head><title>Nicht gefunden — {title}</title>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/static/css/style.css">
-</head><body><div style="padding:4rem;text-align:center">
-<h1>404</h1><p>Note not found.</p><a href="/">← Home</a></div></body></html>"#,
-        state.config.server.site_title
+</head><body><div style="padding:4rem;text-align:center;font-family:var(--font-interface,sans-serif)">
+<div style="font-size:4rem;margin-bottom:1rem">🔍</div>
+<h1 style="margin:0 0 .5rem">404 – Nicht gefunden</h1>
+<p style="color:var(--text-muted,#888);margin-bottom:2rem">Diese Notiz existiert nicht.</p>
+<a href="/" style="padding:.5rem 1.2rem;background:var(--interactive-accent,#7c5cbf);color:#fff;border-radius:6px;text-decoration:none">← Zurück zur Startseite</a>
+</div></body></html>"#,
+        title = state.config.server.site_title
     );
     (StatusCode::NOT_FOUND, Html(html)).into_response()
+}
+
+fn access_denied(state: &AppState) -> Response {
+    let html = format!(
+        r#"<!DOCTYPE html><html><head><title>Kein Zugriff — {title}</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/static/css/style.css">
+</head><body><div style="padding:4rem;text-align:center;font-family:var(--font-interface,sans-serif)">
+<div style="font-size:4rem;margin-bottom:1rem">🔒</div>
+<h1 style="margin:0 0 .5rem">Kein Zugriff</h1>
+<p style="color:var(--text-muted,#888);margin-bottom:2rem">Du hast keine Berechtigung, diese Seite zu sehen.</p>
+<a href="/" style="padding:.5rem 1.2rem;background:var(--interactive-accent,#7c5cbf);color:#fff;border-radius:6px;text-decoration:none">← Zurück zur Startseite</a>
+</div></body></html>"#,
+        title = state.config.server.site_title
+    );
+    (StatusCode::FORBIDDEN, Html(html)).into_response()
 }
 

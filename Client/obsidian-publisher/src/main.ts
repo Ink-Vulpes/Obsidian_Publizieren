@@ -8,7 +8,6 @@ import { LogStore } from './log-store';
 import type { LogEntry } from './log-store';
 import { SyncLogView, SYNC_LOG_VIEW_TYPE } from './views/SyncLogView';
 import { ChangesView, CHANGES_VIEW_TYPE } from './views/ChangesView';
-import { SyncModal } from './modals/SyncModal';
 import { AdminModal } from './modals/AdminModal';
 import { LogModal } from './modals/LogModal';
 
@@ -53,17 +52,19 @@ export default class ObsidianPublisher extends Plugin {
 		this.setStatus('bereit');
 
 		// ── Ribbon ───────────────────────────────────────────────────────────────
-		this.addRibbonIcon('cloud-upload', 'Publisher synchronisieren', () => this.openSyncModal());
+		this.addRibbonIcon('globe', 'Webseite öffnen', () => this.openSite());
 		this.addRibbonIcon('git-compare', 'Ausstehende Änderungen', () => this.openChangesPanel());
 		this.addRibbonIcon('history', 'Publisher Log', () => this.openLogPanel());
+		this.addRibbonIcon('settings', 'Admin-Panel', () => new AdminModal(this.app, this.api).open());
 
 		// ── Commands ─────────────────────────────────────────────────────────────
-		this.addCommand({ id: 'sync-now', name: 'Jetzt synchronisieren', callback: () => this.openSyncModal() });
 		this.addCommand({ id: 'open-changes', name: 'Ausstehende Änderungen anzeigen', callback: () => this.openChangesPanel() });
 		this.addCommand({ id: 'open-log-panel', name: 'Protokoll-Panel öffnen', callback: () => this.openLogPanel() });
 		this.addCommand({ id: 'open-log-modal', name: 'Protokoll-Modal öffnen', callback: () => new LogModal(this.app, this.logStore).open() });
 		this.addCommand({ id: 'open-admin', name: 'Admin-Panel öffnen', callback: () => new AdminModal(this.app, this.api).open() });
+		this.addCommand({ id: 'open-site', name: 'Webseite öffnen (eingeloggt)', callback: () => this.openSite() });
 		this.addCommand({ id: 'sync-silent', name: 'Stille Synchronisierung (ohne Modal)', callback: () => this.syncSilent() });
+		this.addCommand({ id: 'toggle-publish', name: 'Veröffentlichung umschalten', callback: () => this.togglePublishField() });
 
 		// ── Settings tab ─────────────────────────────────────────────────────────
 		this.addSettingTab(new PublisherSettingTab(this.app, this));
@@ -165,36 +166,6 @@ export default class ObsidianPublisher extends Plugin {
 
 	// ── Sync ──────────────────────────────────────────────────────────────────
 
-	private async openSyncModal() {
-		if (!this.settings.serverUrl || !this.settings.username) {
-			new Notice('Bitte zuerst Server-URL und Zugangsdaten in den Einstellungen konfigurieren.');
-			return;
-		}
-		this.setStatus('berechne …');
-		try {
-			const diff = await this.syncEngine.computeDiff();
-			new SyncModal(this.app, diff, this.syncEngine, async (errors) => {
-				await this.onSyncCompleted({
-					timestamp: Date.now(),
-					push: diff.push, pull: diff.pull,
-					deleteRemote: diff.deleteRemote, deleteLocal: diff.deleteLocal,
-					errors,
-				});
-				if (errors.length > 0) {
-					new Notice(`Sync: ${errors.length} Fehler\n${errors[0]}`);
-					this.setStatus(`${errors.length} Fehler`);
-				} else {
-					new Notice('Synchronisierung abgeschlossen.');
-					this.setStatus('synchronisiert');
-				}
-			}).open();
-			this.setStatus('bereit');
-		} catch (e) {
-			new Notice('Sync-Fehler: ' + (e as Error).message);
-			this.setStatus('Fehler');
-		}
-	}
-
 	private async syncSilent() {
 		if (!this.settings.serverUrl || !this.settings.username) return;
 		this.setStatus('synchronisiert …');
@@ -239,4 +210,107 @@ export default class ObsidianPublisher extends Plugin {
 	}
 
 	private setStatus(msg: string) { this.statusBar.setText(`☁ ${msg}`); }
+
+	// ── Open site ─────────────────────────────────────────────────────────────
+
+	private async openSite(next = '/') {
+		if (!this.settings.serverUrl) {
+			new Notice('Bitte zuerst die Server-URL in den Einstellungen konfigurieren.');
+			return;
+		}
+		let url: string;
+		try {
+			const token = await this.api.ensureToken();
+			const base = this.settings.serverUrl.replace(/\/$/, '');
+			url = `${base}/auto-login?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`;
+		} catch (e) {
+			new Notice('Anmeldung fehlgeschlagen: ' + (e as Error).message);
+			return;
+		}
+
+		// Try Surfing (internal browser plugin) first
+		const surfing = (this.app as any).plugins?.plugins?.['surfing'];
+		if (surfing) {
+			const leaf = this.app.workspace.getLeaf('tab');
+			await leaf.setViewState({ type: 'surfing-view', state: { url } });
+			this.app.workspace.revealLeaf(leaf);
+			return;
+		}
+
+		// Fallback: system default browser
+		window.open(url, '_blank');
+	}
+
+	// ── Publish toggle ────────────────────────────────────────────────────────
+
+	private async togglePublishField() {
+		const file = this.app.workspace.getActiveFile();
+		if (!file) {
+			new Notice('Keine Datei geöffnet.');
+			return;
+		}
+
+		// Get configured publish field name from server
+		let fieldName = 'published';
+		try {
+			const settings = await this.api.adminGetSettings();
+			fieldName = settings.publish_field || 'published';
+		} catch { /* use default */ }
+
+		const content = await this.app.vault.read(file);
+		const newContent = toggleFrontmatterBool(content, fieldName);
+		await this.app.vault.modify(file, newContent);
+
+		const isNowPublished = getFrontmatterBool(newContent, fieldName);
+		new Notice(isNowPublished ? `✓ Veröffentlicht (${fieldName}: true)` : `○ Versteckt (${fieldName}: false)`);
+	}
+}
+
+function toggleFrontmatterBool(content: string, field: string): string {
+	const bom = content.startsWith('﻿') ? '﻿' : '';
+	const c = content.startsWith('﻿') ? content.slice(1) : content;
+
+	if (!c.startsWith('---')) {
+		// No frontmatter — prepend one
+		return `${bom}---\n${field}: true\n---\n${c}`;
+	}
+
+	const afterOpen = c.slice(3);
+	const endIdx = afterOpen.indexOf('\n---');
+	if (endIdx === -1) {
+		return `${bom}---\n${field}: true\n---\n${c.slice(3)}`;
+	}
+
+	const fm = afterOpen.slice(0, endIdx);
+	const rest = afterOpen.slice(endIdx); // includes \n---
+
+	const lines = fm.split('\n');
+	const prefix = `${field}:`;
+	const idx = lines.findIndex(l => l.trim().toLowerCase().startsWith(prefix.toLowerCase()));
+
+	if (idx === -1) {
+		// Field not present — add it as true
+		lines.push(`${field}: true`);
+	} else {
+		const current = lines[idx].split(':').slice(1).join(':').trim().toLowerCase() === 'true';
+		lines[idx] = `${field}: ${current ? 'false' : 'true'}`;
+	}
+
+	return `${bom}---\n${lines.join('\n')}${rest}\n`;
+}
+
+function getFrontmatterBool(content: string, field: string): boolean {
+	const c = content.startsWith('﻿') ? content.slice(1) : content;
+	if (!c.startsWith('---')) return false;
+	const afterOpen = c.slice(3);
+	const endIdx = afterOpen.indexOf('\n---');
+	if (endIdx === -1) return false;
+	const fm = afterOpen.slice(0, endIdx);
+	const prefix = `${field}:`;
+	for (const line of fm.split('\n')) {
+		if (line.trim().toLowerCase().startsWith(prefix.toLowerCase())) {
+			return line.split(':').slice(1).join(':').trim().toLowerCase() === 'true';
+		}
+	}
+	return false;
 }
