@@ -2,11 +2,8 @@ name: Build & Publish Docker Image
 
 on:
   push:
-    branches:
-      - master
-    paths:
-      - 'Server/**'
-      - '.github/workflows/docker-publish.yml'
+    tags:
+      - 'server-v*'   # trigger: git tag server-v1.2.3 && git push --tags
   workflow_dispatch: # manual trigger
 
 env:
