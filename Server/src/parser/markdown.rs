@@ -55,6 +55,8 @@ pub fn parse_markdown(content: &str, vault: &Vault) -> ParsedNote {
         .unwrap_or_default();
     let tags = crate::vault::extract_tags(content);
 
+    // Render dataview blocks before other processing
+    let body = &crate::parser::dataview::render_dataview_blocks(body, vault);
     // Protect math expressions BEFORE comrak so _ * < > are not mangled
     let (body_no_math, math_slots) = protect_math(body);
     let processed = preprocess_embeds(&body_no_math, vault);

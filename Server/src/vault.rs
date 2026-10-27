@@ -5,6 +5,21 @@ use walkdir::WalkDir;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+pub fn parse_frontmatter_fields(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Some(fm) = extract_frontmatter(content) else { return map };
+    for line in fm.lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            let key = k.trim().to_string();
+            let val = v.trim().trim_matches('"').trim_matches('\'').to_string();
+            if !key.is_empty() && !key.starts_with('#') && !key.starts_with('-') {
+                map.insert(key, val);
+            }
+        }
+    }
+    map
+}
+
 static WIKILINK_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\[\[([^\]|#\n]+?)(?:[|#][^\]]*)?\]\]").unwrap());
 
@@ -30,6 +45,8 @@ pub struct NoteEntry {
     /// true when publish_field is empty (no filter) or when the note's frontmatter
     /// has publish_field: true.
     pub is_published: bool,
+    /// All frontmatter key-value pairs (string representation).
+    pub frontmatter: HashMap<String, String>,
 }
 
 /// Extensions that are served as vault assets (not rendered as notes).
@@ -142,25 +159,23 @@ impl Vault {
                 (vec![], vec![])
             };
 
-            let is_published = if publish_field.is_empty() {
-                true
-            } else if kind == NoteKind::Markdown {
+            let (is_published, frontmatter) = if kind == NoteKind::Markdown {
                 if let Ok(content) = std::fs::read_to_string(path) {
                     let plain = strip_markdown(&content);
-                    search_index.insert(slug.clone(), plain.clone());
-                    extract_frontmatter_bool(&content, publish_field)
+                    search_index.insert(slug.clone(), plain);
+                    let published = if publish_field.is_empty() {
+                        true
+                    } else {
+                        extract_frontmatter_bool(&content, publish_field)
+                    };
+                    let fm = parse_frontmatter_fields(&content);
+                    (published, fm)
                 } else {
-                    false
+                    (false, HashMap::new())
                 }
             } else {
-                false
+                (false, HashMap::new())
             };
-
-            if kind == NoteKind::Markdown && !search_index.contains_key(&slug) {
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    search_index.insert(slug.clone(), strip_markdown(&content));
-                }
-            }
 
             title_to_slug.insert(title.to_lowercase(), slug.clone());
 
@@ -174,6 +189,7 @@ impl Vault {
                     tags,
                     links_to,
                     is_published,
+                    frontmatter,
                 },
             );
         }

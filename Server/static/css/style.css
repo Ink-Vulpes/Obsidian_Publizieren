@@ -743,3 +743,12 @@ a:hover { color: var(--tertiary); text-decoration: underline; }
 
 /* ── Utilities ───────────────────────────────── */
 .error-msg { color: #e06c75; font-size: 0.9rem; padding: 1rem; }
+
+/* ── Dataview ────────────────────────────────── */
+.dataview-list { padding-left: 1.2rem; }
+.dataview-list li { margin: 0.25rem 0; }
+.dataview-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 0.5rem 0 1rem; }
+.dataview-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--lightgray); color: var(--gray); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.dataview-table td { padding: 5px 10px; border-bottom: 1px solid var(--lightgray); }
+.dataview-table tr:last-child td { border-bottom: none; }
+.dataview-notice { background: var(--highlight); border-left: 3px solid var(--orange); padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.9rem; margin: 0.5rem 0; }
