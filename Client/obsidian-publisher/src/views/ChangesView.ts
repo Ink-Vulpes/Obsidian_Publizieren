@@ -118,37 +118,14 @@ export class ChangesView extends ItemView {
 			this.rerender(scrollTop);
 		};
 
-		// Scrollable body (height persisted in localStorage)
-		const savedH = (() => { try { return localStorage.getItem('publisher-changes-h'); } catch { return null; } })();
+		// Scrollable body
 		const bodyEl = root.createEl('div', { cls: 'publisher-changes-body' });
-		if (savedH) bodyEl.style.height = savedH;
 
 		this.renderSection(bodyEl, `↑ Hochladen`, diff.push, 'publisher-changes-push', 'push');
 		this.renderSection(bodyEl, `↓ Herunterladen`, diff.pull, 'publisher-changes-pull', 'pull');
 		this.renderSection(bodyEl, `✕ Vom Server löschen`, diff.deleteRemote, 'publisher-changes-del', 'deleteRemote');
 		this.renderSection(bodyEl, `✕ Lokal löschen`, diff.deleteLocal, 'publisher-changes-del', 'deleteLocal');
 		this.renderConflicts(bodyEl, diff.conflicts);
-
-		// Resize handle
-		const resizeHandle = root.createEl('div', { cls: 'publisher-changes-resize-handle' });
-		let dragStartY = 0;
-		let dragStartH = 0;
-		resizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
-			e.preventDefault();
-			dragStartY = e.clientY;
-			dragStartH = bodyEl.getBoundingClientRect().height;
-			const onMove = (ev: MouseEvent) => {
-				const newH = Math.max(60, dragStartH + ev.clientY - dragStartY);
-				bodyEl.style.height = newH + 'px';
-			};
-			const onUp = () => {
-				try { localStorage.setItem('publisher-changes-h', bodyEl.style.height); } catch { /* */ }
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		});
 
 		// Footer
 		const footer = root.createEl('div', { cls: 'publisher-changes-footer' });
@@ -168,22 +145,39 @@ export class ChangesView extends ItemView {
 
 	private renderSection(parent: HTMLElement, label: string, paths: string[], cls: string, action: DiffAction) {
 		if (paths.length === 0) return;
+		const key = 'publisher-section-collapsed-' + cls;
+		const collapsed = (() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } })();
+
 		const section = parent.createEl('div', { cls: 'publisher-changes-section' });
 
-		// Section header with select-all checkbox
+		// Section header with select-all checkbox + collapse toggle
 		const header = section.createEl('div', { cls: 'publisher-changes-section-header' });
 		const sectionCb = header.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
 		sectionCb.type = 'checkbox';
 		this.setTristate(sectionCb, paths);
-		header.createEl('span', { text: `${label} (${paths.length})`, cls: `publisher-changes-section-label ${cls}` });
 		sectionCb.onchange = () => {
 			if (sectionCb.checked) paths.forEach(p => this.selected.add(p));
 			else paths.forEach(p => this.selected.delete(p));
 			this.rerender();
 		};
+		const labelEl = header.createEl('span', { text: `${label} (${paths.length})`, cls: `publisher-changes-section-label ${cls}` });
+		const arrow = header.createEl('span', { cls: 'publisher-changes-collapse-arrow', text: collapsed ? '▶' : '▼' });
+
+		// Toggle on label/arrow click (not on checkbox)
+		const toggle = () => {
+			const nowCollapsed = ul.style.display !== 'none';
+			ul.style.display = nowCollapsed ? 'none' : '';
+			arrow.textContent = nowCollapsed ? '▶' : '▼';
+			try { localStorage.setItem(key, nowCollapsed ? '1' : '0'); } catch { /* */ }
+		};
+		labelEl.style.cursor = 'pointer';
+		labelEl.onclick = toggle;
+		arrow.onclick = toggle;
 
 		// File list
 		const ul = section.createEl('ul', { cls: 'publisher-changes-filelist' });
+		if (collapsed) ul.style.display = 'none';
+
 		for (const p of paths) {
 			const li = ul.createEl('li', { cls: 'publisher-changes-file-item' });
 			const cb = li.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
@@ -201,24 +195,41 @@ export class ChangesView extends ItemView {
 
 	private renderConflicts(parent: HTMLElement, paths: string[]) {
 		if (paths.length === 0) return;
+		const key = 'publisher-section-collapsed-conflicts';
+		const collapsed = (() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } })();
+
 		const section = parent.createEl('div', { cls: 'publisher-changes-section' });
 
 		const header = section.createEl('div', { cls: 'publisher-changes-section-header' });
 		const sectionCb = header.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
 		sectionCb.type = 'checkbox';
 		this.setTristate(sectionCb, paths);
-		header.createEl('span', {
-			text: `⚠ Konflikte (${paths.length}) — beide Seiten geändert`,
-			cls: 'publisher-changes-section-label publisher-changes-conflict',
-		});
 		sectionCb.onchange = () => {
 			if (sectionCb.checked) paths.forEach(p => this.selected.add(p));
 			else paths.forEach(p => this.selected.delete(p));
 			this.rerender();
 		};
+		const labelEl = header.createEl('span', {
+			text: `⚠ Konflikte (${paths.length}) — beide Seiten geändert`,
+			cls: 'publisher-changes-section-label publisher-changes-conflict',
+		});
+		const arrow = header.createEl('span', { cls: 'publisher-changes-collapse-arrow', text: collapsed ? '▶' : '▼' });
+
+		const body = section.createEl('div');
+		if (collapsed) body.style.display = 'none';
+
+		const toggle = () => {
+			const nowCollapsed = body.style.display !== 'none';
+			body.style.display = nowCollapsed ? 'none' : '';
+			arrow.textContent = nowCollapsed ? '▶' : '▼';
+			try { localStorage.setItem(key, nowCollapsed ? '1' : '0'); } catch { /* */ }
+		};
+		labelEl.style.cursor = 'pointer';
+		labelEl.onclick = toggle;
+		arrow.onclick = toggle;
 
 		for (const p of paths) {
-			const row = section.createEl('div', { cls: 'publisher-changes-conflict-row' });
+			const row = body.createEl('div', { cls: 'publisher-changes-conflict-row' });
 
 			const cb = row.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
 			cb.type = 'checkbox';
