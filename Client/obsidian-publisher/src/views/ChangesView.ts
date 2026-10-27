@@ -118,14 +118,37 @@ export class ChangesView extends ItemView {
 			this.rerender(scrollTop);
 		};
 
-		// Scrollable body
+		// Scrollable body (height persisted in localStorage)
+		const savedH = (() => { try { return localStorage.getItem('publisher-changes-h'); } catch { return null; } })();
 		const bodyEl = root.createEl('div', { cls: 'publisher-changes-body' });
+		if (savedH) bodyEl.style.height = savedH;
 
 		this.renderSection(bodyEl, `↑ Hochladen`, diff.push, 'publisher-changes-push', 'push');
 		this.renderSection(bodyEl, `↓ Herunterladen`, diff.pull, 'publisher-changes-pull', 'pull');
 		this.renderSection(bodyEl, `✕ Vom Server löschen`, diff.deleteRemote, 'publisher-changes-del', 'deleteRemote');
 		this.renderSection(bodyEl, `✕ Lokal löschen`, diff.deleteLocal, 'publisher-changes-del', 'deleteLocal');
 		this.renderConflicts(bodyEl, diff.conflicts);
+
+		// Resize handle
+		const resizeHandle = root.createEl('div', { cls: 'publisher-changes-resize-handle' });
+		let dragStartY = 0;
+		let dragStartH = 0;
+		resizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+			e.preventDefault();
+			dragStartY = e.clientY;
+			dragStartH = bodyEl.getBoundingClientRect().height;
+			const onMove = (ev: MouseEvent) => {
+				const newH = Math.max(60, dragStartH + ev.clientY - dragStartY);
+				bodyEl.style.height = newH + 'px';
+			};
+			const onUp = () => {
+				try { localStorage.setItem('publisher-changes-h', bodyEl.style.height); } catch { /* */ }
+				document.removeEventListener('mousemove', onMove);
+				document.removeEventListener('mouseup', onUp);
+			};
+			document.addEventListener('mousemove', onMove);
+			document.addEventListener('mouseup', onUp);
+		});
 
 		// Footer
 		const footer = root.createEl('div', { cls: 'publisher-changes-footer' });
