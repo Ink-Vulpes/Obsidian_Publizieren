@@ -105,7 +105,7 @@ export class AdminModal extends Modal {
 			const saveBtn = card.createEl('button', { text: 'Speichern', cls: 'mod-cta' });
 			saveBtn.style.cssText = 'margin-top:8px;font-size:12px;padding:3px 10px;';
 			saveBtn.onclick = async () => {
-				saveBtn.setText('…').disabled = true;
+				saveBtn.setText('…'); saveBtn.disabled = true;
 				try {
 					await this.api.adminUpdatePermissions(user.id, state);
 					new Notice(`Berechtigungen für ${user.username} gespeichert`);
@@ -114,7 +114,7 @@ export class AdminModal extends Modal {
 					new Notice('Fehler: ' + (e as Error).message);
 					saveBtn.setText('Fehler');
 				}
-				setTimeout(() => { saveBtn.setText('Speichern').disabled = false; }, 3000);
+				setTimeout(() => { saveBtn.setText('Speichern'); saveBtn.disabled = false; }, 3000);
 			};
 		}
 
@@ -200,7 +200,7 @@ export class AdminModal extends Modal {
 			saveBtn.onclick = async () => {
 				const wl = wlArea.value.split('\n').map(s => s.trim()).filter(Boolean);
 				const bl = blArea.value.split('\n').map(s => s.trim()).filter(Boolean);
-				saveBtn.setText('…').disabled = true;
+				saveBtn.setText('…'); saveBtn.disabled = true;
 				try {
 					await this.api.adminSetLists(wl, bl);
 					new Notice('Listen gespeichert');
@@ -209,7 +209,7 @@ export class AdminModal extends Modal {
 					new Notice('Fehler: ' + (e as Error).message);
 					saveBtn.setText('Fehler');
 				}
-				setTimeout(() => { saveBtn.setText('Speichern').disabled = false; }, 3000);
+				setTimeout(() => { saveBtn.setText('Speichern'); saveBtn.disabled = false; }, 3000);
 			};
 		}).catch(e => {
 			loading.setText('Fehler: ' + (e as Error).message);
@@ -243,7 +243,7 @@ export class AdminModal extends Modal {
 
 			const saveBtn = parent.createEl('button', { text: 'Speichern', cls: 'mod-cta' });
 			saveBtn.onclick = async () => {
-				saveBtn.setText('…').disabled = true;
+				saveBtn.setText('…'); saveBtn.disabled = true;
 				try {
 					await this.api.adminSetSettings({ publish_field: input.value.trim() });
 					new Notice('Einstellungen gespeichert');
@@ -252,7 +252,7 @@ export class AdminModal extends Modal {
 					new Notice('Fehler: ' + (e as Error).message);
 					saveBtn.setText('Fehler');
 				}
-				setTimeout(() => { saveBtn.setText('Speichern').disabled = false; }, 3000);
+				setTimeout(() => { saveBtn.setText('Speichern'); saveBtn.disabled = false; }, 3000);
 			};
 		}).catch(e => {
 			loading.setText('Fehler: ' + (e as Error).message);
