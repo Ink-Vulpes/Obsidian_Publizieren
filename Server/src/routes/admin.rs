@@ -108,6 +108,11 @@ pub async fn update_permissions(
     if !current_user.can_manage_users && !current_user.is_admin {
         return (StatusCode::FORBIDDEN, "Keine Berechtigung").into_response();
     }
+    if let Ok(Some(target)) = crate::db::find_user_by_id(&state.db, user_id).await {
+        if target.is_admin {
+            return (StatusCode::FORBIDDEN, "Admin-Berechtigungen können nicht verändert werden").into_response();
+        }
+    }
 
     let perms = crate::db::UserPermissions {
         user_id,
@@ -157,6 +162,11 @@ pub async fn delete_user(
             Json(serde_json::json!({"error": "Kannst dich nicht selbst löschen"})),
         )
             .into_response();
+    }
+    if let Ok(Some(target)) = crate::db::find_user_by_id(&state.db, user_id).await {
+        if target.is_admin {
+            return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Admin-Nutzer können nicht gelöscht werden"}))).into_response();
+        }
     }
 
     if let Err(e) = crate::db::delete_user(&state.db, user_id).await {
@@ -250,6 +260,11 @@ pub async fn api_update_permissions(
 ) -> Response {
     if !current_user.can_manage_users && !current_user.is_admin {
         return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Keine Berechtigung"}))).into_response();
+    }
+    if let Ok(Some(target)) = crate::db::find_user_by_id(&state.db, user_id).await {
+        if target.is_admin {
+            return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Admin-Berechtigungen können nicht verändert werden"}))).into_response();
+        }
     }
     let perms = crate::db::UserPermissions {
         user_id,

@@ -96,25 +96,30 @@ export class AdminModal extends Modal {
 			const row = permsEl.createEl('label', { cls: 'publisher-perm-row' });
 			const cb = row.createEl('input');
 			cb.type = 'checkbox';
-			cb.checked = state[key];
-			cb.onchange = () => { (state as any)[key] = cb.checked; };
+			cb.checked = user.is_admin ? true : state[key];
+			cb.disabled = user.is_admin;
+			if (!user.is_admin) {
+				cb.onchange = () => { (state as any)[key] = cb.checked; };
+			}
 			row.appendText(' ' + label);
 		}
 
-		const saveBtn = card.createEl('button', { text: 'Speichern', cls: 'mod-cta' });
-		saveBtn.style.cssText = 'margin-top:8px;font-size:12px;padding:3px 10px;';
-		saveBtn.onclick = async () => {
-			saveBtn.setText('…').disabled = true;
-			try {
-				await this.api.adminUpdatePermissions(user.id, state);
-				new Notice(`Berechtigungen für ${user.username} gespeichert`);
-				saveBtn.setText('✓ Gespeichert');
-			} catch (e) {
-				new Notice('Fehler: ' + (e as Error).message);
-				saveBtn.setText('Fehler');
-			}
-			setTimeout(() => { saveBtn.setText('Speichern').disabled = false; }, 3000);
-		};
+		if (!user.is_admin) {
+			const saveBtn = card.createEl('button', { text: 'Speichern', cls: 'mod-cta' });
+			saveBtn.style.cssText = 'margin-top:8px;font-size:12px;padding:3px 10px;';
+			saveBtn.onclick = async () => {
+				saveBtn.setText('…').disabled = true;
+				try {
+					await this.api.adminUpdatePermissions(user.id, state);
+					new Notice(`Berechtigungen für ${user.username} gespeichert`);
+					saveBtn.setText('✓ Gespeichert');
+				} catch (e) {
+					new Notice('Fehler: ' + (e as Error).message);
+					saveBtn.setText('Fehler');
+				}
+				setTimeout(() => { saveBtn.setText('Speichern').disabled = false; }, 3000);
+			};
+		}
 
 		if (!user.is_admin) {
 			const delBtn = card.createEl('button', {
