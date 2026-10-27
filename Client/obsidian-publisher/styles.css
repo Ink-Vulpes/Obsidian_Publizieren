@@ -153,6 +153,7 @@
 .publisher-changes-pull { color: var(--color-blue); }
 .publisher-changes-del  { color: var(--color-red); }
 .publisher-changes-conflict { color: var(--color-orange); }
+.publisher-changes-server-only { color: var(--color-blue); }
 
 .publisher-changes-filelist {
   margin: 0 0 0 4px; padding: 0;

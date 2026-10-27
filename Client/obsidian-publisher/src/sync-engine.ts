@@ -8,6 +8,7 @@ export interface SyncState {
 export interface SyncDiff {
 	push: string[];
 	pull: string[];
+	serverOnly: string[];  // on server but not locally — user chooses download or delete
 	deleteRemote: string[];
 	deleteLocal: string[];
 	conflicts: string[];   // both local and server changed since last sync
@@ -60,6 +61,7 @@ export class SyncEngine {
 
 		const push: string[] = [];
 		const pull: string[] = [];
+		const serverOnly: string[] = [];
 		const deleteRemote: string[] = [];
 		const deleteLocal: string[] = [];
 		const conflicts: string[] = [];
@@ -96,27 +98,29 @@ export class SyncEngine {
 			}
 		}
 
-		// Files that exist on server but not locally → always offer as download.
-		// (If the user explicitly wants to delete them from the server, they can
-		// deselect the file and use a future delete action — but auto-suggesting
-		// "delete from server" when a file is simply missing locally is too risky.)
+		// Files that exist on server but not locally → user chooses: download or delete
 		for (const [path] of serverMap) {
 			if (!localMap.has(path)) {
-				pull.push(path);
+				serverOnly.push(path);
 			}
 		}
 
-		return { push, pull, deleteRemote, deleteLocal, conflicts };
+		return { push, pull, serverOnly, deleteRemote, deleteLocal, conflicts };
 	}
 
 	async executeActions(
 		diff: SyncDiff,
 		conflictResolutions: Map<string, ConflictResolution>,
 		onProgress: (msg: string, done: number, total: number) => void,
+		serverOnlyActions: Map<string, 'pull' | 'deleteRemote'> = new Map(),
 	): Promise<{ errors: string[] }> {
 		const actions: SyncAction[] = [
 			...diff.push.map(p => ({ type: 'push' as const, path: p })),
 			...diff.pull.map(p => ({ type: 'pull' as const, path: p })),
+			...(diff.serverOnly ?? []).map(p => ({
+				type: (serverOnlyActions.get(p) ?? 'pull') as 'pull' | 'deleteRemote',
+				path: p,
+			})),
 			...diff.deleteRemote.map(p => ({ type: 'deleteRemote' as const, path: p })),
 			...diff.deleteLocal.map(p => ({ type: 'deleteLocal' as const, path: p })),
 			// resolve conflicts

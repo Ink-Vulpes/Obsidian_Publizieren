@@ -1,7 +1,7 @@
 {
   "id": "obsidian-publisher",
   "name": "Publizieren",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "minAppVersion": "1.4.0",
   "description": "Publish and sync your vault with your self-hosted Obsidian Publisher server. Supports bidirectional sync, auto-sync and an admin panel.",
   "author": "Ink-Vulpes",

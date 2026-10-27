@@ -176,8 +176,10 @@ export default class ObsidianPublisher extends Plugin {
 			);
 			await this.onSyncCompleted({
 				timestamp: Date.now(),
-				push: diff.push, pull: diff.pull,
-				deleteRemote: diff.deleteRemote, deleteLocal: diff.deleteLocal,
+				push: diff.push,
+				pull: [...diff.pull, ...(diff.serverOnly ?? [])],
+				deleteRemote: diff.deleteRemote,
+				deleteLocal: diff.deleteLocal,
 				errors,
 			});
 			const total = diff.push.length + diff.pull.length +

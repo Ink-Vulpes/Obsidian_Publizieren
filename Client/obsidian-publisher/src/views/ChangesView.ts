@@ -18,6 +18,7 @@ export class ChangesView extends ItemView {
 	private api: ApiClient;
 	private state: State = { kind: 'idle' };
 	private resolutions = new Map<string, ConflictResolution>();
+	private serverOnlyActions = new Map<string, 'pull' | 'deleteRemote'>();
 	private selected = new Set<string>();
 	private onSyncDone: (() => void) | null = null;
 
@@ -44,9 +45,13 @@ export class ChangesView extends ItemView {
 			const newRes = new Map<string, ConflictResolution>();
 			for (const p of diff.conflicts) newRes.set(p, this.resolutions.get(p) ?? 'push');
 			this.resolutions = newRes;
+			// Keep existing serverOnly actions, add defaults for new files
+			const newSoa = new Map<string, 'pull' | 'deleteRemote'>();
+			for (const p of (diff.serverOnly ?? [])) newSoa.set(p, this.serverOnlyActions.get(p) ?? 'pull');
+			this.serverOnlyActions = newSoa;
 			// Select everything by default on each refresh
 			this.selected = new Set([
-				...diff.push, ...diff.pull,
+				...diff.push, ...diff.pull, ...(diff.serverOnly ?? []),
 				...diff.deleteRemote, ...diff.deleteLocal, ...diff.conflicts,
 			]);
 			this.state = { kind: 'ready', diff };
@@ -97,7 +102,7 @@ export class ChangesView extends ItemView {
 		// ── Ready ──────────────────────────────────────────────────────────────
 		const { diff } = this.state;
 		const allPaths = [
-			...diff.push, ...diff.pull,
+			...diff.push, ...diff.pull, ...(diff.serverOnly ?? []),
 			...diff.deleteRemote, ...diff.deleteLocal, ...diff.conflicts,
 		];
 
@@ -123,6 +128,7 @@ export class ChangesView extends ItemView {
 
 		this.renderSection(bodyEl, `↑ Hochladen`, diff.push, 'publisher-changes-push', 'push');
 		this.renderSection(bodyEl, `↓ Herunterladen`, diff.pull, 'publisher-changes-pull', 'pull');
+		this.renderServerOnly(bodyEl, diff.serverOnly ?? []);
 		this.renderSection(bodyEl, `✕ Vom Server löschen`, diff.deleteRemote, 'publisher-changes-del', 'deleteRemote');
 		this.renderSection(bodyEl, `✕ Lokal löschen`, diff.deleteLocal, 'publisher-changes-del', 'deleteLocal');
 		this.renderConflicts(bodyEl, diff.conflicts);
@@ -190,6 +196,70 @@ export class ChangesView extends ItemView {
 			};
 			const link = li.createEl('span', { text: p, cls: 'publisher-changes-file-link' });
 			link.onclick = () => new FileDiffModal(this.app, p, action, this.api).open();
+		}
+	}
+
+	private renderServerOnly(parent: HTMLElement, paths: string[]) {
+		if (paths.length === 0) return;
+		const key = 'publisher-section-collapsed-server-only';
+		const collapsed = (() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } })();
+
+		const section = parent.createEl('div', { cls: 'publisher-changes-section' });
+		const header = section.createEl('div', { cls: 'publisher-changes-section-header' });
+		const sectionCb = header.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
+		sectionCb.type = 'checkbox';
+		this.setTristate(sectionCb, paths);
+		sectionCb.onchange = () => {
+			if (sectionCb.checked) paths.forEach(p => this.selected.add(p));
+			else paths.forEach(p => this.selected.delete(p));
+			this.rerender();
+		};
+		const labelEl = header.createEl('span', {
+			text: `↕ Nur auf Server (${paths.length})`,
+			cls: 'publisher-changes-section-label publisher-changes-server-only',
+		});
+		const arrow = header.createEl('span', { cls: 'publisher-changes-collapse-arrow', text: collapsed ? '▶' : '▼' });
+
+		const body = section.createEl('div');
+		if (collapsed) body.style.display = 'none';
+
+		const toggle = () => {
+			const nowCollapsed = body.style.display !== 'none';
+			body.style.display = nowCollapsed ? 'none' : '';
+			arrow.textContent = nowCollapsed ? '▶' : '▼';
+			try { localStorage.setItem(key, nowCollapsed ? '1' : '0'); } catch { /* */ }
+		};
+		labelEl.style.cursor = 'pointer';
+		labelEl.onclick = toggle;
+		arrow.onclick = toggle;
+
+		for (const p of paths) {
+			const row = body.createEl('div', { cls: 'publisher-changes-conflict-row' });
+
+			const cb = row.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
+			cb.type = 'checkbox';
+			cb.checked = this.selected.has(p);
+			cb.onchange = () => {
+				if (cb.checked) this.selected.add(p);
+				else this.selected.delete(p);
+				this.rerender();
+			};
+
+			const pathSpan = row.createEl('span', { text: p, cls: 'publisher-changes-conflict-path publisher-changes-file-link' });
+			pathSpan.onclick = () => new FileDiffModal(this.app, p, 'pull', this.api).open();
+
+			const btns = row.createEl('div', { cls: 'publisher-changes-conflict-btns' });
+			const current = this.serverOnlyActions.get(p) ?? 'pull';
+			const downloadBtn = btns.createEl('button', { text: '↓ Laden',  cls: 'publisher-conflict-btn' + (current === 'pull' ? ' active' : '') });
+			const deleteBtn   = btns.createEl('button', { text: '✕ Löschen', cls: 'publisher-conflict-btn' + (current === 'deleteRemote' ? ' active' : '') });
+
+			const setAction = (action: 'pull' | 'deleteRemote', active: HTMLButtonElement) => {
+				this.serverOnlyActions.set(p, action);
+				[downloadBtn, deleteBtn].forEach(b => b.removeClass('active'));
+				active.addClass('active');
+			};
+			downloadBtn.onclick = () => setAction('pull', downloadBtn);
+			deleteBtn.onclick   = () => setAction('deleteRemote', deleteBtn);
 		}
 	}
 
@@ -287,6 +357,7 @@ export class ChangesView extends ItemView {
 		const filtered: SyncDiff = {
 			push: diff.push.filter(p => this.selected.has(p)),
 			pull: diff.pull.filter(p => this.selected.has(p)),
+			serverOnly: (diff.serverOnly ?? []).filter(p => this.selected.has(p)),
 			deleteRemote: diff.deleteRemote.filter(p => this.selected.has(p)),
 			deleteLocal: diff.deleteLocal.filter(p => this.selected.has(p)),
 			conflicts: diff.conflicts.filter(p => this.selected.has(p)),
@@ -302,6 +373,7 @@ export class ChangesView extends ItemView {
 					this.state = { kind: 'syncing', progress: `[${done}/${total}] ${msg}` };
 					this.render();
 				},
+				this.serverOnlyActions,
 			);
 			try { await this.api.reloadVault(); } catch { /* non-critical */ }
 			if (errors.length > 0) new Notice(`Sync: ${errors.length} Fehler — ${errors[0]}`);
