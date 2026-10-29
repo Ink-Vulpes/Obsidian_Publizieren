@@ -56,6 +56,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sync.sql"),
         include_str!("../migrations/003_settings.sql"),
+        include_str!("../migrations/004_drop_sessions.sql"),
     ] {
         for stmt in sql.split(";\n") {
             let s = stmt.trim();
@@ -197,63 +198,6 @@ pub async fn set_folder_access(pool: &MySqlPool, user_id: u32, folders: &[String
             .execute(pool)
             .await?;
     }
-    Ok(())
-}
-
-// ── Sessions ─────────────────────────────────────────────────────────────────
-
-pub async fn create_session(
-    pool: &MySqlPool,
-    token: &str,
-    user_id: u32,
-    expires_at: DateTime<Utc>,
-) -> anyhow::Result<()> {
-    sqlx::query("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
-        .bind(token)
-        .bind(user_id)
-        .bind(expires_at)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn delete_session(pool: &MySqlPool, token: &str) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM sessions WHERE token = ?")
-        .bind(token)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-/// Load the user+permissions for a session token. Returns None if expired/missing.
-pub async fn get_session_user(
-    pool: &MySqlPool,
-    token: &str,
-) -> anyhow::Result<Option<(User, UserPermissions, Vec<String>)>> {
-    let now = Utc::now();
-    let user = sqlx::query_as::<_, User>(
-        "SELECT u.id, u.username, u.password_hash, u.is_admin, u.created_at
-         FROM users u
-         INNER JOIN sessions s ON s.user_id = u.id
-         WHERE s.token = ? AND s.expires_at > ?",
-    )
-    .bind(token)
-    .bind(now)
-    .fetch_optional(pool)
-    .await?;
-
-    let Some(user) = user else {
-        return Ok(None);
-    };
-    let perms = get_user_permissions(pool, user.id).await?;
-    let folders = get_allowed_folders(pool, user.id).await?;
-    Ok(Some((user, perms, folders)))
-}
-
-pub async fn cleanup_expired_sessions(pool: &MySqlPool) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM sessions WHERE expires_at <= NOW()")
-        .execute(pool)
-        .await?;
     Ok(())
 }
 

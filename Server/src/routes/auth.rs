@@ -9,6 +9,33 @@ use time::Duration;
 
 use crate::{auth::{CurrentUser, SESSION_COOKIE}, AppState};
 
+// ── JWT helper for a fully-resolved user ──────────────────────────────────────
+
+async fn make_jwt_for_user(
+    state: &AppState,
+    user: &crate::db::User,
+) -> anyhow::Result<String> {
+    let perms = crate::db::get_user_permissions(&state.db, user.id)
+        .await
+        .unwrap_or_default();
+    let folders = crate::db::get_allowed_folders(&state.db, user.id)
+        .await
+        .unwrap_or_default();
+
+    crate::auth::create_jwt(
+        user.id,
+        &user.username,
+        user.is_admin,
+        user.is_admin || perms.can_upload,
+        user.is_admin || perms.can_manage_users,
+        user.is_admin || perms.can_manage_lists,
+        !user.is_admin && perms.folder_restriction,
+        folders,
+        state.config.auth.session_duration_hours,
+        &state.config.auth.session_secret,
+    )
+}
+
 // ── Login ─────────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -51,14 +78,13 @@ pub async fn login(
         return render_login(&state, "Ungültige Anmeldedaten.", next, false);
     }
 
-    let token = crate::auth::generate_token();
-    let expires = chrono::Utc::now()
-        + chrono::Duration::hours(state.config.auth.session_duration_hours);
-
-    if let Err(e) = crate::db::create_session(&state.db, &token, user.id, expires).await {
-        tracing::error!("create_session: {}", e);
-        return render_login(&state, "Serverfehler, bitte erneut versuchen.", next, false);
-    }
+    let token = match make_jwt_for_user(&state, &user).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("create_jwt: {}", e);
+            return render_login(&state, "Serverfehler, bitte erneut versuchen.", next, false);
+        }
+    };
 
     let mut c = Cookie::new(SESSION_COOKIE, token);
     c.set_http_only(true);
@@ -74,10 +100,7 @@ pub async fn login(
     (jar.add(c), Redirect::to(&redirect_to)).into_response()
 }
 
-pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
-    if let Some(c) = jar.get(SESSION_COOKIE) {
-        let _ = crate::db::delete_session(&state.db, c.value()).await;
-    }
+pub async fn logout(_state: State<AppState>, jar: CookieJar) -> Response {
     let removal = Cookie::build((SESSION_COOKIE, ""))
         .path("/")
         .max_age(Duration::seconds(0))
@@ -86,8 +109,6 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
 }
 
 // ── Auto-login via bearer token ───────────────────────────────────────────────
-// The Obsidian plugin calls /auto-login?token=<bearer>&next=/ to get a session
-// cookie without going through the login form.
 
 #[derive(Deserialize)]
 pub struct AutoLoginQuery {
@@ -100,14 +121,9 @@ pub async fn auto_login(
     jar: CookieJar,
     Query(params): Query<AutoLoginQuery>,
 ) -> Response {
-    // Validate the bearer token — it's the same as a session token in the DB.
-    match crate::db::get_session_user(&state.db, &params.token).await {
-        Ok(Some((user, _perms, _folders))) => {
-            tracing::info!("auto_login: {} authenticated via token", user.username);
-        }
-        _ => {
-            return Redirect::to("/login").into_response();
-        }
+    // Validate the JWT — if invalid/expired, redirect to login
+    if crate::auth::verify_jwt(&params.token, &state.config.auth.session_secret).is_none() {
+        return Redirect::to("/login").into_response();
     }
 
     let mut c = Cookie::new(SESSION_COOKIE, params.token);
@@ -133,7 +149,7 @@ fn render_login(state: &AppState, error: &str, next: &str, registered: bool) -> 
     Html(state.tera.render("login.html", &ctx).unwrap_or_default()).into_response()
 }
 
-// ── API token (for upload script) ────────────────────────────────────────────
+// ── API token endpoint ────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct TokenRequest {
@@ -164,24 +180,26 @@ pub async fn api_token(
             .into_response();
     }
 
-    let token = crate::auth::generate_token();
-    let expires = chrono::Utc::now()
-        + chrono::Duration::hours(state.config.auth.session_duration_hours);
+    let token = match make_jwt_for_user(&state, &user).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("api_token create_jwt: {}", e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({ "error": "Server error" })),
+            )
+                .into_response();
+        }
+    };
 
-    if let Err(e) = crate::db::create_session(&state.db, &token, user.id, expires).await {
-        tracing::error!("api_token create_session: {}", e);
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({ "error": "Server error" })),
-        )
-            .into_response();
-    }
+    let expires_at = chrono::Utc::now()
+        + chrono::Duration::hours(state.config.auth.session_duration_hours);
 
     axum::Json(serde_json::json!({
         "token": token,
         "username": user.username,
         "is_admin": user.is_admin,
-        "expires_at": expires.to_rfc3339(),
+        "expires_at": expires_at.to_rfc3339(),
     }))
     .into_response()
 }
