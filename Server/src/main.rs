@@ -111,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/upload", post(routes::api::upload_files)
             .layer(DefaultBodyLimit::max(500 * 1024 * 1024)))
         .route("/api/files/delete", delete(routes::api::delete_file))
+        .route("/api/files/delete-all", delete(routes::api::delete_all_files))
         .route("/api/sync/download", get(routes::api::download_file))
         .route("/api/sync/device", post(routes::api::register_device))
         .route("/api/admin/users", get(routes::admin::api_list_users))
@@ -153,6 +154,7 @@ fn build_templates() -> anyhow::Result<tera::Tera> {
         ("login.html",      include_str!("../templates/login.html")),
         ("register.html",   include_str!("../templates/register.html")),
         ("admin.html",      include_str!("../templates/admin.html")),
+        ("bases.html",      include_str!("../templates/bases.html")),
     ])?;
     Ok(tera)
 }

@@ -1,4 +1,4 @@
-import { Notice, Plugin, WorkspaceLeaf } from 'obsidian';
+import { Modal, Notice, Plugin, WorkspaceLeaf } from 'obsidian';
 import { ApiClient } from './api';
 import { SyncEngine } from './sync-engine';
 import type { SyncState } from './sync-engine';
@@ -65,6 +65,7 @@ export default class ObsidianPublisher extends Plugin {
 		this.addCommand({ id: 'open-site', name: 'Webseite öffnen (eingeloggt)', callback: () => this.openSite() });
 		this.addCommand({ id: 'sync-silent', name: 'Stille Synchronisierung (ohne Modal)', callback: () => this.syncSilent() });
 		this.addCommand({ id: 'toggle-publish', name: 'Veröffentlichung umschalten', callback: () => this.togglePublishField() });
+		this.addCommand({ id: 'reset-and-upload', name: 'Server zurücksetzen und Vault hochladen', callback: () => this.confirmResetAndUpload() });
 
 		// ── Settings tab ─────────────────────────────────────────────────────────
 		this.addSettingTab(new PublisherSettingTab(this.app, this));
@@ -243,6 +244,64 @@ export default class ObsidianPublisher extends Plugin {
 		window.open(url, '_blank');
 	}
 
+	// ── Reset & upload ────────────────────────────────────────────────────────
+
+	private confirmResetAndUpload() {
+		if (!this.settings.serverUrl || !this.settings.username) {
+			new Notice('Bitte zuerst die Server-URL in den Einstellungen konfigurieren.');
+			return;
+		}
+		new ResetConfirmModal(this.app, () => this.resetAndUpload()).open();
+	}
+
+	private async resetAndUpload() {
+		this.setStatus('löscht Server …');
+		try {
+			const { deleted } = await this.api.deleteAllFiles();
+			new Notice(`✓ ${deleted} Dateien vom Server gelöscht.`);
+		} catch (e) {
+			new Notice('Server-Reset fehlgeschlagen: ' + (e as Error).message);
+			this.setStatus('Fehler');
+			return;
+		}
+
+		// Clear local sync state so all local files appear new
+		this.syncEngine.clearSyncState();
+		await this.savePluginData();
+
+		// Reload server vault index
+		try { await this.api.reloadVault(); } catch { /* non-critical */ }
+
+		// Upload everything
+		this.setStatus('lädt hoch …');
+		try {
+			const files = this.app.vault.getFiles();
+			let done = 0;
+			const errors: string[] = [];
+			for (const file of files) {
+				this.setStatus(`${done}/${files.length}`);
+				try {
+					const data = await this.app.vault.readBinary(file);
+					await this.api.uploadFile(file.path, data);
+				} catch (e) {
+					errors.push(`${file.path}: ${(e as Error).message}`);
+				}
+				done++;
+			}
+			await this.onSyncCompleted(null);
+			if (errors.length > 0) {
+				new Notice(`Upload abgeschlossen. ${errors.length} Fehler.`);
+				this.setStatus(`${errors.length} Fehler`);
+			} else {
+				new Notice(`✓ ${files.length} Dateien hochgeladen.`);
+				this.setStatus('bereit');
+			}
+		} catch (e) {
+			new Notice('Upload fehlgeschlagen: ' + (e as Error).message);
+			this.setStatus('Fehler');
+		}
+	}
+
 	// ── Publish toggle ────────────────────────────────────────────────────────
 
 	private async togglePublishField() {
@@ -265,6 +324,44 @@ export default class ObsidianPublisher extends Plugin {
 
 		const isNowPublished = getFrontmatterBool(newContent, fieldName);
 		new Notice(isNowPublished ? `✓ Veröffentlicht (${fieldName}: true)` : `○ Versteckt (${fieldName}: false)`);
+	}
+}
+
+class ResetConfirmModal extends Modal {
+	private onConfirm: () => void;
+
+	constructor(app: import('obsidian').App, onConfirm: () => void) {
+		super(app);
+		this.onConfirm = onConfirm;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl('h2', { text: 'Server zurücksetzen' });
+		contentEl.createEl('p', {
+			text: '⚠️ Alle Dateien auf dem Server werden unwiderruflich gelöscht und anschließend die gesamte lokale Vault hochgeladen.',
+		});
+		contentEl.createEl('p', {
+			text: 'Bist du sicher?',
+			attr: { style: 'font-weight: bold;' },
+		});
+
+		const btnRow = contentEl.createDiv({ attr: { style: 'display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;' } });
+
+		btnRow.createEl('button', { text: 'Abbrechen' }).onclick = () => this.close();
+
+		const confirmBtn = btnRow.createEl('button', {
+			text: 'Ja, alles löschen und hochladen',
+			attr: { style: 'background:var(--color-red,#e74c3c);color:#fff;border:none;padding:0.4rem 0.8rem;border-radius:4px;cursor:pointer;' },
+		});
+		confirmBtn.onclick = () => {
+			this.close();
+			this.onConfirm();
+		};
+	}
+
+	onClose() {
+		this.contentEl.empty();
 	}
 }
 

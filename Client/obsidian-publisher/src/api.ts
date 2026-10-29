@@ -133,6 +133,16 @@ export class ApiClient {
 		return resp.ok;
 	}
 
+	async deleteAllFiles(): Promise<{ deleted: number; errors: string[] }> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/files/delete-all'), {
+			method: 'DELETE',
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error(`Server-Reset fehlgeschlagen (HTTP ${resp.status})`);
+		return resp.json();
+	}
+
 	async reloadVault(): Promise<void> {
 		const token = await this.ensureToken();
 		await fetch(this.url('/api/reload'), {

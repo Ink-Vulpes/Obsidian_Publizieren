@@ -46,6 +46,10 @@ export class SyncEngine {
 		return { ...this.lastSyncState };
 	}
 
+	clearSyncState() {
+		this.lastSyncState = {};
+	}
+
 	async computeDiff(): Promise<SyncDiff> {
 		const [serverManifest, localFiles] = await Promise.all([
 			this.api.getManifest(),

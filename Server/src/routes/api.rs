@@ -423,6 +423,41 @@ pub async fn download_file(
     }
 }
 
+// ── Delete all vault files ────────────────────────────────────────────────────
+
+pub async fn delete_all_files(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> axum::response::Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Nur Admins dürfen alle Dateien löschen"}))).into_response();
+    }
+
+    let vault_root = PathBuf::from(&state.config.server.vault_path);
+    let mut deleted = 0u32;
+    let mut errors: Vec<String> = vec![];
+
+    for ent in walkdir::WalkDir::new(&vault_root)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        match std::fs::remove_file(ent.path()) {
+            Ok(_) => {
+                if let Ok(rel) = ent.path().strip_prefix(&vault_root) {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    let _ = crate::db::delete_vault_file(&state.db, &rel_str).await;
+                }
+                deleted += 1;
+            }
+            Err(e) => errors.push(format!("{}: {}", ent.path().display(), e)),
+        }
+    }
+
+    Json(serde_json::json!({ "deleted": deleted, "errors": errors })).into_response()
+}
+
 // ── Device registration ───────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
