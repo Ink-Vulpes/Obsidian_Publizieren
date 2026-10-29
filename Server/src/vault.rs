@@ -32,6 +32,7 @@ pub enum NoteKind {
     Markdown,
     Canvas,
     Excalidraw,
+    Base,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -131,6 +132,7 @@ impl Vault {
                 }
                 "canvas" => NoteKind::Canvas,
                 "excalidraw" => NoteKind::Excalidraw,
+                "base" => NoteKind::Base,
                 _ => continue,
             };
 
@@ -150,6 +152,7 @@ impl Vault {
                 .strip_suffix(".md")
                 .or_else(|| rel_path.strip_suffix(".canvas"))
                 .or_else(|| rel_path.strip_suffix(".excalidraw"))
+                .or_else(|| rel_path.strip_suffix(".base"))
                 .unwrap_or(&rel_path)
                 .to_string();
 
@@ -173,6 +176,9 @@ impl Vault {
                 } else {
                     (false, HashMap::new())
                 }
+            } else if kind == NoteKind::Base {
+                // .base files are always "published" so they can be resolved for embeds
+                (true, HashMap::new())
             } else {
                 (false, HashMap::new())
             };

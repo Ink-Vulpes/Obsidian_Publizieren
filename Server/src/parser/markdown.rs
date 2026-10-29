@@ -55,8 +55,9 @@ pub fn parse_markdown(content: &str, vault: &Vault) -> ParsedNote {
         .unwrap_or_default();
     let tags = crate::vault::extract_tags(content);
 
-    // Render dataview blocks before other processing
+    // Render dataview and base blocks before other processing
     let body = &crate::parser::dataview::render_dataview_blocks(body, vault);
+    let body = &crate::parser::bases::render_base_blocks(body, vault);
     // Protect math expressions BEFORE comrak so _ * < > are not mangled
     let (body_no_math, math_slots) = protect_math(body);
     let processed = preprocess_embeds(&body_no_math, vault);
@@ -245,6 +246,21 @@ fn preprocess_embeds(content: &str, vault: &Vault) -> String {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // Bases embed: render the .base file inline as a table/list
+            if lower.ends_with(".base") {
+                if let Some(entry) = vault.find_by_title(target) {
+                    let file_path = vault.root.join(&entry.path);
+                    if let Ok(yaml) = std::fs::read_to_string(&file_path) {
+                        let inner = super::bases::render_base(&yaml, vault);
+                        return format!(
+                            "\n\n<div class=\"bases-embed\" data-source=\"{}\">{}</div>\n\n",
+                            html_escape(target),
+                            inner
+                        );
                     }
                 }
             }

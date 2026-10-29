@@ -752,3 +752,18 @@ a:hover { color: var(--tertiary); text-decoration: underline; }
 .dataview-table td { padding: 5px 10px; border-bottom: 1px solid var(--lightgray); }
 .dataview-table tr:last-child td { border-bottom: none; }
 .dataview-notice { background: var(--highlight); border-left: 3px solid var(--orange); padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.9rem; margin: 0.5rem 0; }
+
+/* ── Bases ──────────────────────────────────────────────────────────────────── */
+.bases-table-wrap { overflow-x: auto; margin: 0.5rem 0 1rem; }
+.bases-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.bases-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--lightgray); color: var(--gray); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.bases-table td { padding: 5px 10px; border-bottom: 1px solid var(--lightgray); }
+.bases-table tr:last-child td { border-bottom: none; }
+.bases-table .bases-group-row td { background: var(--light); color: var(--gray); font-weight: 600; font-size: 0.8rem; padding: 4px 10px; }
+.bases-list { padding-left: 1.2rem; }
+.bases-list li { margin: 0.25rem 0; }
+.bases-view-name { font-size: 1rem; font-weight: 600; margin: 1.2rem 0 0.4rem; color: var(--dark); }
+.bases-empty { color: var(--gray); font-style: italic; font-size: 0.9rem; }
+.bases-error { background: var(--highlight); border-left: 3px solid var(--red); padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.9rem; margin: 0.5rem 0; }
+.bases-embed { margin: 1rem 0; }
+.bases-page .note-content { max-width: 100%; }

@@ -128,6 +128,11 @@ pub async fn render_note(
                 .await
                 .into_response()
         }
+        NoteKind::Base => {
+            render_base(note_path, slug, note_title, backlinks, file_tree, current_user, state)
+                .await
+                .into_response()
+        }
     }
 }
 
@@ -219,6 +224,32 @@ async fn render_excalidraw(
     Html(state.tera.render("excalidraw.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }
 
+async fn render_base(
+    path: std::path::PathBuf,
+    slug: String,
+    note_title: String,
+    backlinks: Vec<serde_json::Value>,
+    file_tree: serde_json::Value,
+    current_user: CurrentUser,
+    state: AppState,
+) -> Html<String> {
+    let yaml = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    let vault = state.vault.read().await;
+    let bases_html = crate::parser::bases::render_base(&yaml, &vault);
+    drop(vault);
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("site_title", &state.config.server.site_title);
+    ctx.insert("page_title", &note_title);
+    ctx.insert("bases_html", &bases_html);
+    ctx.insert("backlinks", &backlinks);
+    ctx.insert("file_tree", &file_tree);
+    ctx.insert("slug", &slug);
+    ctx.insert("current_user", &current_user);
+
+    Html(state.tera.render("bases.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
+}
+
 /// Filtered file tree that respects user folder/list permissions.
 pub fn build_file_tree_json_filtered(
     vault: &crate::vault::Vault,
@@ -267,6 +298,7 @@ pub fn build_file_tree_json_filtered(
             crate::vault::NoteKind::Canvas => "canvas",
             crate::vault::NoteKind::Excalidraw => "excalidraw",
             crate::vault::NoteKind::Markdown => "markdown",
+            crate::vault::NoteKind::Base => "base",
         };
         insert(&mut root, &parts, &note.slug, &note.title, kind);
     }
