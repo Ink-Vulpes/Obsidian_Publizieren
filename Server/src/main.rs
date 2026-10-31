@@ -1,4 +1,5 @@
 use axum::{extract::DefaultBodyLimit, http::HeaderValue, middleware, routing::{delete, get, post}, Router};
+use tower_http::set_header::SetResponseHeaderLayer;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use tokio::sync::RwLock as AsyncRwLock;
@@ -8,6 +9,7 @@ use tower_http::services::ServeDir;
 mod auth;
 mod config;
 mod db;
+mod external_meta;
 mod parser;
 mod routes;
 mod vault;
@@ -27,6 +29,8 @@ pub struct AppState {
     pub blacklist: Arc<RwLock<HashSet<String>>>,
     /// Frontmatter field checked for publish flag; empty = no filter
     pub publish_field: Arc<RwLock<String>>,
+    /// Frontmatter field used for group-based access; default "group"
+    pub group_field: Arc<RwLock<String>>,
 }
 
 #[tokio::main]
@@ -69,9 +73,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "published".to_string());
     let publish_field: Arc<RwLock<String>> = Arc::new(RwLock::new(publish_field_str.clone()));
 
+    let group_field_str = db::get_setting(&db, "group_field")
+        .await
+        .unwrap_or_default()
+        .unwrap_or_else(|| "group".to_string());
+    let group_field: Arc<RwLock<String>> = Arc::new(RwLock::new(group_field_str.clone()));
+
     // ── Vault ─────────────────────────────────────────────────────────────────
     tracing::info!("Loading vault from {}", config.server.vault_path);
-    let vault = Vault::load(&config.server.vault_path, &publish_field_str).expect("Failed to load vault");
+    let vault = Vault::load(&config.server.vault_path, &publish_field_str, &group_field_str).expect("Failed to load vault");
     let vault = Arc::new(AsyncRwLock::new(vault));
 
     // ── Whitelist / Blacklist cache ───────────────────────────────────────────
@@ -85,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
     // ── Templates ─────────────────────────────────────────────────────────────
     let tera = Arc::new(build_templates()?);
 
-    let state = AppState { vault, config: config.clone(), tera, db, whitelist, blacklist, publish_field };
+    let state = AppState { vault, config: config.clone(), tera, db, whitelist, blacklist, publish_field, group_field };
 
     // ── Router ────────────────────────────────────────────────────────────────
     let app = Router::new()
@@ -96,8 +106,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/logout", post(routes::auth::logout))
         .route("/auto-login", get(routes::auth::auto_login))
         .route("/register/:token", get(routes::auth::register_page).post(routes::auth::register))
-        // Static files (no auth)
-        .nest_service("/static", ServeDir::new("static"))
+        // Static files (no auth, no-cache so JS/CSS updates are picked up immediately)
+        .nest_service(
+            "/static",
+            tower::ServiceBuilder::new()
+                .layer(SetResponseHeaderLayer::overriding(
+                    axum::http::header::CACHE_CONTROL,
+                    HeaderValue::from_static("no-store"),
+                ))
+                .service(ServeDir::new("static")),
+        )
         // API auth endpoint for upload script
         .route("/api/auth/token", post(routes::auth::api_token))
         // Protected routes
@@ -118,6 +136,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/users/:id/permissions", post(routes::admin::api_update_permissions))
         .route("/api/admin/lists", get(routes::admin::api_get_lists).post(routes::admin::api_set_lists))
         .route("/api/admin/settings", get(routes::admin::api_get_settings).post(routes::admin::api_set_settings))
+        .route("/api/admin/groups", get(routes::admin::api_list_groups).post(routes::admin::api_create_group))
+        .route("/api/admin/groups/:id", delete(routes::admin::api_delete_group))
+        .route("/api/admin/groups/:id/members", post(routes::admin::api_add_group_member))
+        .route("/api/admin/groups/:id/members/:uid", delete(routes::admin::api_remove_group_member))
+        .route("/api/admin/note-meta", get(routes::admin::api_get_all_note_meta))
+        .route("/api/admin/note-meta/*slug", post(routes::admin::api_set_note_meta))
         .route("/admin", get(routes::admin::admin_page))
         .route("/admin/invite", post(routes::admin::create_invite))
         .route("/admin/users/:id/permissions", post(routes::admin::update_permissions))

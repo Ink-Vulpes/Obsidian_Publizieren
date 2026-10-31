@@ -1,0 +1,2 @@
+ALTER TABLE user_permissions ADD COLUMN sees_published BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE user_permissions ADD COLUMN sees_all       BOOLEAN NOT NULL DEFAULT FALSE

@@ -4,75 +4,7 @@
 <script>
   window.__EXCALIDRAW_RAW__ = {{ excalidraw_json | safe }};
 </script>
-<!-- lz-string: Obsidian Excalidraw uses LZString.compressToBase64 for its compressed-json blocks -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js" crossorigin="anonymous"></script>
-<!-- React + Excalidraw UMD (exportToSvg doesn't need a DOM root, avoids UIOptions bugs) -->
-<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
-<script>
-(async function () {
-  const container = document.getElementById('excalidraw-container');
-  const raw = window.__EXCALIDRAW_RAW__;
-
-  function showError(msg) {
-    container.innerHTML = '<p class="error-msg">⚠️ ' + msg + '</p>';
-  }
-
-  try {
-    // ── 1. Resolve data (decompress if needed) ────────────────────────────
-    let data = raw;
-
-    if (raw.compressed) {
-      if (typeof LZString === 'undefined') {
-        showError('lz-string library failed to load.');
-        return;
-      }
-      const json = LZString.decompressFromBase64(raw.compressed);
-      if (!json) { showError('Could not decompress drawing data.'); return; }
-      data = JSON.parse(json);
-    }
-
-    if (!data.elements || data.elements.length === 0) {
-      showError('No drawable elements found in this file.');
-      return;
-    }
-
-    // ── 2. Render to SVG ──────────────────────────────────────────────────
-    if (typeof ExcalidrawLib === 'undefined' || !ExcalidrawLib.exportToSvg) {
-      showError('Excalidraw library not loaded.');
-      return;
-    }
-
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-
-    const svg = await ExcalidrawLib.exportToSvg({
-      elements: data.elements,
-      appState: {
-        ...(data.appState || {}),
-        exportWithDarkMode: isDark,
-        exportBackground: true,
-        viewBackgroundColor: isDark ? '#1c1c1e' : '#ffffff',
-        theme: isDark ? 'dark' : 'light',
-      },
-      files: data.files || null,
-    });
-
-    // exportToSvg may add an invert filter for dark mode; remove it since we
-    // already export with the correct theme colours above.
-    svg.removeAttribute('filter');
-    // Fix text that may have been set to very dark (near-invisible on dark bg) — keep as is,
-    // since dark text (#1e1e1e) is correct for a white background.
-    svg.style.cssText = 'width:100%;height:auto;max-height:75vh;display:block;border-radius:6px';
-    container.innerHTML = '';
-    container.appendChild(svg);
-
-  } catch (e) {
-    showError('Render error: ' + e.message);
-    console.error('Excalidraw render error', e);
-  }
-})();
-</script>
+<script src="/static/js/excalidraw-page.js" defer></script>
 {% endblock %}
 
 {% block content %}

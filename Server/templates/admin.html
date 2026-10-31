@@ -83,8 +83,10 @@
               {% if u.permissions.can_upload %}Upload {% endif %}
               {% if u.permissions.can_manage_users %}Nutzer {% endif %}
               {% if u.permissions.can_manage_lists %}Listen {% endif %}
-              {% if u.permissions.folder_restriction %}Ordner-Einschränkung{% endif %}
-              {% if not u.permissions.can_upload and not u.permissions.can_manage_users and not u.permissions.can_manage_lists and not u.permissions.folder_restriction %}
+              {% if u.permissions.folder_restriction %}Ordner {% endif %}
+              {% if u.permissions.sees_published %}Published {% endif %}
+              {% if u.permissions.sees_all %}Alles{% endif %}
+              {% if not u.permissions.can_upload and not u.permissions.can_manage_users and not u.permissions.can_manage_lists and not u.permissions.folder_restriction and not u.permissions.sees_published and not u.permissions.sees_all %}
                 <span style="font-style:italic">keine</span>
               {% endif %}
             {% endif %}
@@ -99,12 +101,39 @@
                   <div class="perm-row"><input type="checkbox" name="can_manage_users" id="cmu_{{ u.id }}" {% if u.permissions.can_manage_users %}checked{% endif %}><label for="cmu_{{ u.id }}">Kann Nutzer verwalten</label></div>
                   <div class="perm-row"><input type="checkbox" name="can_manage_lists" id="cml_{{ u.id }}" {% if u.permissions.can_manage_lists %}checked{% endif %}><label for="cml_{{ u.id }}">Kann White-/Blacklist verwalten</label></div>
                   <div class="perm-row"><input type="checkbox" name="folder_restriction" id="cfr_{{ u.id }}" {% if u.permissions.folder_restriction %}checked{% endif %}><label for="cfr_{{ u.id }}">Ordner-Einschränkung aktiv</label></div>
+                  <div class="perm-row"><input type="checkbox" name="sees_published" id="csp_{{ u.id }}" {% if u.permissions.sees_published %}checked{% endif %}><label for="csp_{{ u.id }}">Sieht alle veröffentlichten Notizen (ignoriert Gruppen)</label></div>
+                  <div class="perm-row"><input type="checkbox" name="sees_all" id="csa_{{ u.id }}" {% if u.permissions.sees_all %}checked{% endif %}><label for="csa_{{ u.id }}">Sieht alles inkl. unveröffentlichte Notizen</label></div>
                   <div style="margin-top:.6rem">
                     <label style="font-size:.8rem;color:#a0a0a8;display:block;margin-bottom:.3rem">Erlaubte Ordner (je eine Zeile, leer = alle):</label>
                     <textarea class="folders-input" name="folders">{{ u.allowed_folders | join(sep="\n") }}</textarea>
                   </div>
                   <button type="submit" class="btn btn-primary" style="margin-top:.6rem">Speichern</button>
                 </form>
+                {% if groups %}
+                <div style="margin-top:.8rem;padding-top:.8rem;border-top:1px solid #3d3d3f">
+                  <p style="font-size:.8rem;color:#a0a0a8;margin-bottom:.4rem">Gruppen:</p>
+                  <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.5rem">
+                    {% for g in u.groups %}
+                    <span style="display:inline-flex;align-items:center;gap:.3rem;background:#1c1c1e;border:1px solid #3d3d3f;border-radius:4px;padding:.15rem .5rem;font-size:.8rem;font-family:monospace">
+                      {{ g }}
+                      <button onclick="removeUserFromGroup({{ u.id }}, '{{ g }}', this)" style="background:none;border:none;color:#a0a0a8;cursor:pointer;font-size:.95rem;padding:0;line-height:1" title="Entfernen">×</button>
+                    </span>
+                    {% endfor %}
+                    {% if u.groups | length == 0 %}<span style="font-size:.8rem;font-style:italic;color:#a0a0a8">Keine Gruppen</span>{% endif %}
+                  </div>
+                  <div style="display:flex;gap:.4rem">
+                    <select id="grp-sel-{{ u.id }}" style="flex:1;padding:.3rem .5rem;font-size:.8rem;border-radius:4px;border:1px solid #3d3d3f;background:#1c1c1e;color:#ebebec">
+                      <option value="">— Gruppe hinzufügen —</option>
+                      {% for g in groups %}
+                        {% if g.name not in u.groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                        {% endif %}
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-secondary" onclick="addUserToGroup({{ u.id }}, this)" style="font-size:.8rem">+ Add</button>
+                  </div>
+                </div>
+                {% endif %}
               </details>
               {% endif %}
               {% if current_user.is_admin %}
@@ -183,6 +212,85 @@
     </div>
   </div>
 
+  <!-- ── Groups ── -->
+  {% if current_user.is_admin %}
+  <h2 id="groups">Nutzergruppen</h2>
+  <p style="font-size:.88rem;color:#a0a0a8;margin-bottom:1rem">
+    Gruppen erlauben es, Notizen auf bestimmte Nutzer zu beschränken.<br>
+    Trage <code style="background:#1c1c1e;padding:.1rem .3rem;border-radius:3px">group: gruppenname</code> in die Metadaten einer Notiz ein.
+  </p>
+
+  <div class="card">
+    {% if groups | length == 0 %}
+    <div style="padding:1rem;color:#a0a0a8;font-style:italic">Keine Gruppen vorhanden.</div>
+    {% else %}
+    {% for g in groups %}
+    <div style="padding:.8rem 1rem;border-bottom:1px solid #3d3d3f">
+      <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.5rem">
+        <strong style="font-size:.95rem">{{ g.name }}</strong>
+        <span style="font-size:.78rem;color:#a0a0a8">ID {{ g.id }}</span>
+        <button class="btn btn-danger" style="margin-left:auto" onclick="deleteGroup({{ g.id }}, '{{ g.name }}')">Gruppe löschen</button>
+      </div>
+      <div style="margin-left:.5rem">
+        <span style="font-size:.8rem;color:#a0a0a8;margin-bottom:.3rem;display:block">Mitglieder:</span>
+        <div id="members-{{ g.id }}" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.4rem">
+          {% if g.members | length == 0 %}
+            <span style="font-size:.82rem;font-style:italic;color:#a0a0a8">Keine Mitglieder</span>
+          {% else %}
+            {% for m in g.members %}
+            <span class="list-tag">
+              {{ m.username }}
+              <button class="list-remove" title="Entfernen" onclick="removeGroupMember({{ g.id }}, {{ m.id }}, this)">×</button>
+            </span>
+            {% endfor %}
+          {% endif %}
+        </div>
+        <div class="add-form" style="max-width:400px">
+          <select id="add-member-select-{{ g.id }}" style="flex:1;padding:.4rem .6rem;border:1px solid #3d3d3f;border-radius:5px;background:#1c1c1e;color:#ebebec;font-size:.85rem">
+            <option value="">— Nutzer hinzufügen —</option>
+            {% for u in users %}
+            {% if not u.is_admin %}
+            <option value="{{ u.id }}">{{ u.username }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary" onclick="addGroupMember({{ g.id }})">+ Add</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="add-form" style="max-width:400px;margin-bottom:2rem">
+    <input type="text" id="new-group-name" placeholder="Neue Gruppe (z.B. premium)" style="flex:1;padding:.4rem .7rem;border:1px solid #3d3d3f;border-radius:5px;background:#1c1c1e;color:#ebebec;font-size:.85rem;outline:none">
+    <button class="btn btn-primary" onclick="createGroup()">+ Gruppe erstellen</button>
+  </div>
+  {% endif %}
+
+  <!-- ── Settings ── -->
+  {% if current_user.is_admin %}
+  <h2 id="settings">Einstellungen</h2>
+  <div class="card" style="padding:1rem 1.2rem;max-width:520px">
+    <div style="display:grid;gap:1rem">
+      <div>
+        <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.3rem">Publish-Feld</label>
+        <input id="s-publish-field" type="text" placeholder="z. B. published" style="width:100%;padding:.4rem .6rem;background:#1c1c1e;border:1px solid #3d3d3f;border-radius:5px;color:#ebebec;font-size:.85rem;box-sizing:border-box">
+        <p style="font-size:.78rem;color:#a0a0a8;margin-top:.25rem">Frontmatter-Key der für „veröffentlicht" prüft. Leer = kein Filter.</p>
+      </div>
+      <div>
+        <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.3rem">Gruppen-Feld</label>
+        <input id="s-group-field" type="text" placeholder="z. B. group" style="width:100%;padding:.4rem .6rem;background:#1c1c1e;border:1px solid #3d3d3f;border-radius:5px;color:#ebebec;font-size:.85rem;box-sizing:border-box">
+        <p style="font-size:.78rem;color:#a0a0a8;margin-top:.25rem">Frontmatter-Key für Gruppen-Einschränkungen.</p>
+      </div>
+      <div>
+        <button class="btn btn-primary" onclick="saveSettings()">Einstellungen speichern</button>
+        <span id="settings-status" style="margin-left:.8rem;font-size:.82rem"></span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Autocomplete datalist for slugs -->
   <datalist id="slug-list">
     {% for s in all_slugs %}<option value="{{ s }}">{% endfor %}
@@ -190,6 +298,49 @@
 </div>
 
 <script>
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const r = await fetch('/api/admin/settings');
+    if (!r.ok) return;
+    const d = await r.json();
+    const f = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+    f('s-publish-field', d.publish_field);
+    f('s-group-field', d.group_field);
+  } catch(e) { console.warn('Settings load failed', e); }
+}
+
+async function saveSettings() {
+  const g = id => (document.getElementById(id)?.value ?? '').trim();
+  const body = {
+    publish_field: g('s-publish-field'),
+    group_field: g('s-group-field') || null,
+  };
+  const status = document.getElementById('settings-status');
+  try {
+    const r = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.textContent = '✓ Gespeichert';
+      status.style.color = '#6ac47e';
+      setTimeout(() => { status.textContent = ''; }, 3000);
+    } else {
+      status.textContent = '✗ ' + (d.error || 'Fehler');
+      status.style.color = '#e06060';
+    }
+  } catch(e) {
+    status.textContent = '✗ ' + e;
+    status.style.color = '#e06060';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadSettings);
+
+// ── Users ─────────────────────────────────────────────────────────────────────
 async function createInvite() {
   try {
     const r = await fetch('/admin/invite', { method: 'POST' });
@@ -216,6 +367,89 @@ async function deleteUser(id, name) {
   try {
     const r = await fetch('/admin/users/' + id, { method: 'DELETE' });
     const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function createGroup() {
+  const input = document.getElementById('new-group-name');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    const r = await fetch('/api/admin/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function deleteGroup(id, name) {
+  if (!confirm(`Gruppe "${name}" wirklich löschen?`)) return;
+  try {
+    const r = await fetch('/api/admin/groups/' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function addGroupMember(groupId) {
+  const sel = document.getElementById('add-member-select-' + groupId);
+  const userId = parseInt(sel.value);
+  if (!userId) return;
+  try {
+    const r = await fetch(`/api/admin/groups/${groupId}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId })
+    });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function removeGroupMember(groupId, userId, btn) {
+  try {
+    const r = await fetch(`/api/admin/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function addUserToGroup(userId, btn) {
+  const sel = document.getElementById('grp-sel-' + userId);
+  const groupId = parseInt(sel.value);
+  if (!groupId) return;
+  try {
+    const r = await fetch(`/api/admin/groups/${groupId}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId })
+    });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function removeUserFromGroup(userId, groupName, btn) {
+  // Find group id by name from the groups data
+  const sel = document.getElementById('grp-sel-' + userId);
+  // We need group id — look it up via API
+  try {
+    const r = await fetch('/api/admin/groups');
+    const groups = await r.json();
+    const group = groups.find(g => g.name === groupName);
+    if (!group) { alert('Gruppe nicht gefunden'); return; }
+    const r2 = await fetch(`/api/admin/groups/${group.id}/members/${userId}`, { method: 'DELETE' });
+    const d = await r2.json();
     if (d.ok) location.reload();
     else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
   } catch(e) { alert('Fehler: ' + e); }

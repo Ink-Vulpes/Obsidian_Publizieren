@@ -51,6 +51,9 @@ document.addEventListener('DOMContentLoaded', function () {
     loadFileTree(treeContainer);
   }
 
+  // ── Metadata links ─────────────────────────────────────────────────────────
+  renderMetadataLinks();
+
   // ── Callout folds ──────────────────────────────────────────────────────────
   document.querySelectorAll('.callout.foldable .callout-title').forEach(title => {
     title.addEventListener('click', () => {
@@ -100,6 +103,73 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 });
 
+// ── Metadata value link rendering ─────────────────────────────────────────────
+// Convert Obsidian wikilinks [[...]] and Markdown links [text](url) inside
+// .metadata-value spans to actual <a> elements.
+function renderMetadataLinks() {
+  document.querySelectorAll('.metadata-value').forEach(el => {
+    const text = el.textContent;
+    el.innerHTML = metaValueToHtml(text);
+  });
+}
+
+function metaValueToHtml(text) {
+  // List values: [item1, item2, ...]  — parse each item separately.
+  // Detect our server-generated list format (starts and ends with [ ]) but is
+  // NOT a Markdown link (which starts with [text](url)).
+  const listMatch = text.match(/^\[(.+)\]$/);
+  if (listMatch && !text.match(/^\[.+\]\(.+\)$/)) {
+    // Split on ", " but not inside [[...]] or (...)
+    const items = splitListItems(listMatch[1]);
+    if (items.length > 1 || !isSingleLink(listMatch[1])) {
+      return items.map(item => '<span class="meta-list-item">' + singleItemToHtml(item.trim()) + '</span>').join('');
+    }
+  }
+  return singleItemToHtml(text);
+}
+
+function singleItemToHtml(text) {
+  // Markdown link: [Display Text](URL)
+  const mdLink = text.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
+  if (mdLink) {
+    const label = esc(mdLink[1]) || esc(mdLink[2]);
+    const href = esc(mdLink[2]);
+    const isExternal = /^https?:\/\//.test(mdLink[2]);
+    return `<a href="${href}"${isExternal ? ' target="_blank" rel="noopener"' : ''}>${label}</a>`;
+  }
+  // Obsidian wikilink: [[path|alias]] or [[path]]
+  const wikiLink = text.match(/^\[\[([^\]|#]+?)(?:\|([^\]]+))?\]\]$/);
+  if (wikiLink) {
+    const path = wikiLink[1].trim();
+    const alias = wikiLink[2] ? wikiLink[2].trim() : path;
+    // Skip wikilinks to file attachments (images, pdfs, etc.)
+    if (/\.(png|jpg|jpeg|gif|webp|svg|pdf|mp4|mov|excalidraw|canvas|base)$/i.test(path)) {
+      return esc(alias);
+    }
+    return `<a href="/note/${encodeURIComponent(path)}">${esc(alias)}</a>`;
+  }
+  return esc(text);
+}
+
+// Split "item1, [[link with, comma]], item2" on ", " outside brackets.
+function splitListItems(str) {
+  const items = [];
+  let depth = 0, current = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === '[') { depth++; current += ch; }
+    else if (ch === ']') { depth--; current += ch; }
+    else if (ch === ',' && depth === 0) { items.push(current); current = ''; if (str[i+1] === ' ') i++; }
+    else { current += ch; }
+  }
+  if (current) items.push(current);
+  return items;
+}
+
+function isSingleLink(text) {
+  return /^\[\[.+\]\]$/.test(text) || /^\[.+\]\(.+\)$/.test(text);
+}
+
 // ── File tree loader & renderer ───────────────────────────────────────────────
 async function loadFileTree(container) {
   try {
@@ -145,6 +215,7 @@ function renderTreeNodes(nodes, container, currentSlug) {
       const icon = kindIcon(node.kind);
       const a = document.createElement('a');
       a.href = '/note/' + node.slug;
+      if (node.kind) a.dataset.kind = node.kind;
       a.innerHTML = `<span class="tree-file-icon">${icon}</span>${esc(node.name)}`;
       if (node.slug === currentSlug) a.classList.add('active');
       file.appendChild(a);
@@ -156,6 +227,7 @@ function renderTreeNodes(nodes, container, currentSlug) {
 function kindIcon(kind) {
   if (kind === 'canvas') return '⬡';
   if (kind === 'excalidraw') return '✏';
+  if (kind === 'base') return '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;opacity:.7"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>';
   return '◦';
 }
 

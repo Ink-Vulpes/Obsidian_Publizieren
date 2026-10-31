@@ -21,6 +21,9 @@ async fn make_jwt_for_user(
     let folders = crate::db::get_allowed_folders(&state.db, user.id)
         .await
         .unwrap_or_default();
+    let groups = crate::db::get_user_group_names(&state.db, user.id)
+        .await
+        .unwrap_or_default();
 
     crate::auth::create_jwt(
         user.id,
@@ -31,6 +34,9 @@ async fn make_jwt_for_user(
         user.is_admin || perms.can_manage_lists,
         !user.is_admin && perms.folder_restriction,
         folders,
+        groups,
+        perms.sees_published,
+        perms.sees_all,
         state.config.auth.session_duration_hours,
         &state.config.auth.session_secret,
     )
