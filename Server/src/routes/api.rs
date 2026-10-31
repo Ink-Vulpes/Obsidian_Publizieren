@@ -24,7 +24,14 @@ fn note_visible(note: &crate::vault::NoteEntry, user: &CurrentUser, state: &AppS
     if !wl.is_empty() && !wl.contains(&note.slug) {
         return false;
     }
-    if !user.is_admin && !note.is_published {
+
+    let sees_all = user.is_admin || user.sees_all;
+    let sees_published = user.sees_published;
+
+    if !sees_all && !note.is_published {
+        return false;
+    }
+    if !sees_all && !sees_published && !user.can_see_group_note(&note.required_groups) {
         return false;
     }
     user.can_see_note(&note.slug)
@@ -182,7 +189,8 @@ pub async fn file_list(
 
 pub async fn reload_vault(State(state): State<AppState>) -> Json<serde_json::Value> {
     let pf = state.publish_field.read().unwrap().clone();
-    match crate::vault::Vault::load(&state.config.server.vault_path, &pf) {
+    let gf = state.group_field.read().unwrap().clone();
+    match crate::vault::Vault::load(&state.config.server.vault_path, &pf, &gf) {
         Ok(new_vault) => {
             let count = new_vault.notes.len();
             let mut vault = state.vault.write().await;
@@ -231,6 +239,11 @@ pub async fn file_manifest(
             Ok(r) => r.to_string_lossy().replace('\\', "/"),
             Err(_) => continue,
         };
+
+        // Exclude the server-side external metadata file from sync
+        if rel == crate::external_meta::META_FILENAME {
+            continue;
+        }
 
         let meta = match std::fs::metadata(path) {
             Ok(m) => m,
@@ -443,6 +456,12 @@ pub async fn delete_all_files(
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
     {
+        // Preserve the server-side external metadata file
+        if let Ok(rel) = ent.path().strip_prefix(&vault_root) {
+            if rel.to_string_lossy().replace('\\', "/") == crate::external_meta::META_FILENAME {
+                continue;
+            }
+        }
         match std::fs::remove_file(ent.path()) {
             Ok(_) => {
                 if let Ok(rel) = ent.path().strip_prefix(&vault_root) {

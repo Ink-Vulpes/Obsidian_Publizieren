@@ -40,7 +40,7 @@ pub struct ParsedNote {
     pub toc: Vec<TocEntry>,
 }
 
-pub fn parse_markdown(content: &str, vault: &Vault) -> ParsedNote {
+pub fn parse_markdown(content: &str, vault: &Vault, sees_all: bool) -> ParsedNote {
     let (fm, body) = split_frontmatter(content);
     let frontmatter = parse_frontmatter_map(fm);
 
@@ -57,10 +57,10 @@ pub fn parse_markdown(content: &str, vault: &Vault) -> ParsedNote {
 
     // Render dataview and base blocks before other processing
     let body = &crate::parser::dataview::render_dataview_blocks(body, vault);
-    let body = &crate::parser::bases::render_base_blocks(body, vault);
+    let body = &crate::parser::bases::render_base_blocks(body, vault, sees_all);
     // Protect math expressions BEFORE comrak so _ * < > are not mangled
     let (body_no_math, math_slots) = protect_math(body);
-    let processed = preprocess_embeds(&body_no_math, vault);
+    let processed = preprocess_embeds(&body_no_math, vault, sees_all);
     let processed = preprocess_wikilinks(&processed, vault);
 
     let mut opts = comrak::Options::default();
@@ -186,7 +186,7 @@ fn preprocess_wikilinks(content: &str, vault: &Vault) -> String {
     result
 }
 
-fn preprocess_embeds(content: &str, vault: &Vault) -> String {
+fn preprocess_embeds(content: &str, vault: &Vault, sees_all: bool) -> String {
     EMBED_RE
         .replace_all(content, |caps: &regex::Captures| {
             let raw = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
@@ -255,7 +255,7 @@ fn preprocess_embeds(content: &str, vault: &Vault) -> String {
                 if let Some(entry) = vault.find_by_title(target) {
                     let file_path = vault.root.join(&entry.path);
                     if let Ok(yaml) = std::fs::read_to_string(&file_path) {
-                        let inner = super::bases::render_base(&yaml, vault);
+                        let inner = super::bases::render_base(&yaml, vault, sees_all);
                         return format!(
                             "\n\n<div class=\"bases-embed\" data-source=\"{}\">{}</div>\n\n",
                             html_escape(target),

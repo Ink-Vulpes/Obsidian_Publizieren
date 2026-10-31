@@ -5,16 +5,137 @@ use walkdir::WalkDir;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+/// Parse an inline YAML list value like `[a, b, c]` or a plain string.
+pub fn parse_group_list(value: &str) -> Vec<String> {
+    let v = value.trim();
+    if v.starts_with('[') && v.ends_with(']') {
+        v[1..v.len() - 1]
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect()
+    } else if !v.is_empty() {
+        vec![v.trim_matches('"').trim_matches('\'').to_lowercase()]
+    } else {
+        vec![]
+    }
+}
+
+/// Extract a list field from any text, supporting both inline (`field: [a, b]`)
+/// and YAML block list format. Does NOT require frontmatter delimiters.
+pub fn extract_field_list_from_text(text: &str, field: &str) -> Vec<String> {
+    let prefix_lc = format!("{}:", field.to_lowercase());
+    let mut in_list = false;
+    let mut items = Vec::new();
+
+    for line in text.lines() {
+        if !in_list {
+            let trimmed = line.trim();
+            if trimmed.to_lowercase().starts_with(&prefix_lc) {
+                let rest = trimmed[field.len() + 1..].trim();
+                if rest.is_empty() {
+                    in_list = true;
+                } else {
+                    return parse_group_list(rest);
+                }
+            }
+        } else {
+            let trimmed = line.trim();
+            if let Some(item) = trimmed.strip_prefix("- ") {
+                let item = item.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                if !item.is_empty() {
+                    items.push(item);
+                }
+            } else if !trimmed.is_empty() {
+                break;
+            }
+        }
+    }
+    items
+}
+
+/// Extract a list field from raw note content, supporting both inline (`field: [a, b]`)
+/// and YAML block list format:
+/// ```yaml
+/// field:
+///   - a
+///   - b
+/// ```
+pub fn extract_field_list(content: &str, field: &str) -> Vec<String> {
+    let Some(fm) = extract_frontmatter(content) else { return vec![] };
+    let prefix_lc = format!("{}:", field.to_lowercase());
+    let mut in_list = false;
+    let mut items = Vec::new();
+
+    for line in fm.lines() {
+        if !in_list {
+            let trimmed = line.trim();
+            if trimmed.to_lowercase().starts_with(&prefix_lc) {
+                let rest = trimmed[field.len() + 1..].trim();
+                if rest.is_empty() {
+                    // Block list follows on subsequent lines
+                    in_list = true;
+                } else {
+                    // Inline value: `groups: [a, b]` or `groups: a`
+                    return parse_group_list(rest);
+                }
+            }
+        } else {
+            let trimmed = line.trim();
+            if let Some(item) = trimmed.strip_prefix("- ") {
+                let item = item.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+                if !item.is_empty() {
+                    items.push(item);
+                }
+            } else if !trimmed.is_empty() {
+                // A non-empty, non-list line ends the block list
+                break;
+            }
+        }
+    }
+    items
+}
+
 pub fn parse_frontmatter_fields(content: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let Some(fm) = extract_frontmatter(content) else { return map };
+    let mut current_key: Option<String> = None;
+    let mut current_list: Vec<String> = Vec::new();
+
     for line in fm.lines() {
-        if let Some((k, v)) = line.split_once(':') {
-            let key = k.trim().to_string();
-            let val = v.trim().trim_matches('"').trim_matches('\'').to_string();
-            if !key.is_empty() && !key.starts_with('#') && !key.starts_with('-') {
-                map.insert(key, val);
+        let trimmed = line.trim();
+        if trimmed.starts_with("- ") && current_key.is_some() {
+            // Block list item
+            let item = trimmed[2..].trim().trim_matches('"').trim_matches('\'').to_string();
+            if !item.is_empty() {
+                current_list.push(item);
             }
+        } else {
+            // Flush pending block list
+            if let Some(key) = current_key.take() {
+                if !current_list.is_empty() {
+                    map.insert(key, format!("[{}]", current_list.join(", ")));
+                    current_list.clear();
+                }
+            }
+            if let Some((k, v)) = line.split_once(':') {
+                let key = k.trim().to_string();
+                let val = v.trim().trim_matches('"').trim_matches('\'').to_string();
+                if !key.is_empty() && !key.starts_with('#') && !key.starts_with('-') {
+                    if val.is_empty() {
+                        // Might be the start of a block list
+                        current_key = Some(key);
+                    } else {
+                        map.insert(key, val);
+                    }
+                }
+            }
+        }
+    }
+    // Flush last pending block list
+    if let Some(key) = current_key {
+        if !current_list.is_empty() {
+            map.insert(key, format!("[{}]", current_list.join(", ")));
         }
     }
     map
@@ -48,6 +169,8 @@ pub struct NoteEntry {
     pub is_published: bool,
     /// All frontmatter key-value pairs (string representation).
     pub frontmatter: HashMap<String, String>,
+    /// Group names required to see this note (empty = visible to all).
+    pub required_groups: Vec<String>,
 }
 
 /// Extensions that are served as vault assets (not rendered as notes).
@@ -74,7 +197,8 @@ pub struct Vault {
 
 impl Vault {
     /// `publish_field`: frontmatter key to check for `true`; empty string = no filter (all visible).
-    pub fn load(root: &str, publish_field: &str) -> anyhow::Result<Self> {
+    /// `group_field`: frontmatter key for group-based access control; default "group".
+    pub fn load(root: &str, publish_field: &str, group_field: &str) -> anyhow::Result<Self> {
         let root = PathBuf::from(root);
         if !root.exists() {
             std::fs::create_dir_all(&root)?;
@@ -162,7 +286,7 @@ impl Vault {
                 (vec![], vec![])
             };
 
-            let (is_published, frontmatter) = if kind == NoteKind::Markdown {
+            let (is_published, frontmatter, required_groups) = if kind == NoteKind::Markdown {
                 if let Ok(content) = std::fs::read_to_string(path) {
                     let plain = strip_markdown(&content);
                     search_index.insert(slug.clone(), plain);
@@ -172,15 +296,21 @@ impl Vault {
                         extract_frontmatter_bool(&content, publish_field)
                     };
                     let fm = parse_frontmatter_fields(&content);
-                    (published, fm)
+                    let groups = extract_field_list(&content, group_field);
+                    (published, fm, groups)
                 } else {
-                    (false, HashMap::new())
+                    (false, HashMap::new(), vec![])
                 }
             } else if kind == NoteKind::Base {
-                // .base files are always "published" so they can be resolved for embeds
-                (true, HashMap::new())
+                // .base files are always published, but may have group restrictions via group_field
+                let groups = if let Ok(content) = std::fs::read_to_string(path) {
+                    extract_field_list_from_text(&content, group_field)
+                } else {
+                    vec![]
+                };
+                (true, HashMap::new(), groups)
             } else {
-                (false, HashMap::new())
+                (false, HashMap::new(), vec![])
             };
 
             title_to_slug.insert(title.to_lowercase(), slug.clone());
@@ -196,8 +326,31 @@ impl Vault {
                     links_to,
                     is_published,
                     frontmatter,
+                    required_groups,
                 },
             );
+        }
+
+        // Apply external metadata overrides (_server_metadata.json).
+        // Non-markdown files (base/canvas/excalidraw) are admin-only unless an external
+        // metadata entry explicitly makes them visible.
+        let ext_meta = crate::external_meta::read(root.to_str().unwrap_or(""));
+        for (slug, note) in notes.iter_mut() {
+            let is_non_markdown = matches!(note.kind, NoteKind::Base | NoteKind::Canvas | NoteKind::Excalidraw);
+            if let Some(ext) = ext_meta.get(slug) {
+                if let Some(groups) = &ext.groups {
+                    if !groups.is_empty() {
+                        note.required_groups = groups.iter().map(|g| g.to_lowercase()).collect();
+                    }
+                }
+                // An external metadata entry makes non-markdown files visible to users
+                if is_non_markdown {
+                    note.is_published = true;
+                }
+            } else if is_non_markdown {
+                // No external metadata entry → only admins can see this file
+                note.is_published = false;
+            }
         }
 
         let mut backlinks: HashMap<String, Vec<String>> = HashMap::new();

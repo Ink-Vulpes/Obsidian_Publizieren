@@ -19,6 +19,8 @@ pub struct UserPermissions {
     pub can_manage_users: bool,
     pub can_manage_lists: bool,
     pub folder_restriction: bool,
+    pub sees_published: bool,
+    pub sees_all: bool,
 }
 
 impl Default for UserPermissions {
@@ -29,6 +31,8 @@ impl Default for UserPermissions {
             can_manage_users: false,
             can_manage_lists: false,
             folder_restriction: false,
+            sees_published: false,
+            sees_all: false,
         }
     }
 }
@@ -41,6 +45,27 @@ pub struct UserWithPermissions {
     pub created_at: DateTime<Utc>,
     pub permissions: UserPermissions,
     pub allowed_folders: Vec<String>,
+    pub groups: Vec<String>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct Group {
+    pub id: u32,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GroupMember {
+    pub id: u32,
+    pub username: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GroupWithMembers {
+    pub id: u32,
+    pub name: String,
+    pub members: Vec<GroupMember>,
 }
 
 // ── Connection ───────────────────────────────────────────────────────────────
@@ -57,11 +82,18 @@ pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
         include_str!("../migrations/002_sync.sql"),
         include_str!("../migrations/003_settings.sql"),
         include_str!("../migrations/004_drop_sessions.sql"),
+        include_str!("../migrations/005_groups.sql"),
+        include_str!("../migrations/006_user_visibility.sql"),
     ] {
         for stmt in sql.split(";\n") {
             let s = stmt.trim();
-            if !s.is_empty() {
-                sqlx::query(s).execute(pool).await?;
+            if s.is_empty() { continue; }
+            match sqlx::query(s).execute(pool).await {
+                Ok(_) => {}
+                Err(sqlx::Error::Database(db_err))
+                    // 42S21 = SQLState for duplicate column name (MySQL ER_DUP_FIELDNAME)
+                    if db_err.code().as_deref() == Some("42S21") => {}
+                Err(e) => return Err(e.into()),
             }
         }
     }
@@ -124,6 +156,7 @@ pub async fn list_users_with_permissions(pool: &MySqlPool) -> anyhow::Result<Vec
     for u in users {
         let perms = get_user_permissions(pool, u.id).await?;
         let folders = get_allowed_folders(pool, u.id).await?;
+        let groups = get_user_group_names(pool, u.id).await?;
         result.push(UserWithPermissions {
             id: u.id,
             username: u.username,
@@ -131,6 +164,7 @@ pub async fn list_users_with_permissions(pool: &MySqlPool) -> anyhow::Result<Vec
             created_at: u.created_at,
             permissions: perms,
             allowed_folders: folders,
+            groups,
         });
     }
     Ok(result)
@@ -148,7 +182,9 @@ pub async fn delete_user(pool: &MySqlPool, user_id: u32) -> anyhow::Result<()> {
 
 pub async fn get_user_permissions(pool: &MySqlPool, user_id: u32) -> anyhow::Result<UserPermissions> {
     let perms = sqlx::query_as::<_, UserPermissions>(
-        "SELECT user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction
+        "SELECT user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction,
+                COALESCE(sees_published, FALSE) AS sees_published,
+                COALESCE(sees_all, FALSE) AS sees_all
          FROM user_permissions WHERE user_id = ?",
     )
     .bind(user_id)
@@ -159,19 +195,24 @@ pub async fn get_user_permissions(pool: &MySqlPool, user_id: u32) -> anyhow::Res
 
 pub async fn upsert_permissions(pool: &MySqlPool, perms: &UserPermissions) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO user_permissions (user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction)
-         VALUES (?, ?, ?, ?, ?)
+        "INSERT INTO user_permissions
+           (user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction, sees_published, sees_all)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            can_upload = VALUES(can_upload),
            can_manage_users = VALUES(can_manage_users),
            can_manage_lists = VALUES(can_manage_lists),
-           folder_restriction = VALUES(folder_restriction)",
+           folder_restriction = VALUES(folder_restriction),
+           sees_published = VALUES(sees_published),
+           sees_all = VALUES(sees_all)",
     )
     .bind(perms.user_id)
     .bind(perms.can_upload)
     .bind(perms.can_manage_users)
     .bind(perms.can_manage_lists)
     .bind(perms.folder_restriction)
+    .bind(perms.sees_published)
+    .bind(perms.sees_all)
     .execute(pool)
     .await?;
     Ok(())
@@ -374,6 +415,87 @@ pub async fn upsert_vault_file(
 pub async fn delete_vault_file(pool: &MySqlPool, path: &str) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM vault_files WHERE path = ?")
         .bind(path)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ── Sync devices ─────────────────────────────────────────────────────────────
+
+// ── Groups ───────────────────────────────────────────────────────────────────
+
+pub async fn create_group(pool: &MySqlPool, name: &str) -> anyhow::Result<u32> {
+    let res = sqlx::query("INSERT INTO `groups` (name) VALUES (?)")
+        .bind(name)
+        .execute(pool)
+        .await?;
+    Ok(res.last_insert_id() as u32)
+}
+
+pub async fn delete_group(pool: &MySqlPool, group_id: u32) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM `groups` WHERE id = ?")
+        .bind(group_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn list_groups(pool: &MySqlPool) -> anyhow::Result<Vec<Group>> {
+    Ok(sqlx::query_as::<_, Group>(
+        "SELECT id, name, created_at FROM `groups` ORDER BY name",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn list_groups_with_members(pool: &MySqlPool) -> anyhow::Result<Vec<GroupWithMembers>> {
+    let groups = list_groups(pool).await?;
+    let mut result = Vec::with_capacity(groups.len());
+    for g in groups {
+        let rows: Vec<(u32, String)> = sqlx::query_as(
+            "SELECT u.id, u.username FROM users u
+             JOIN user_groups ug ON ug.user_id = u.id
+             WHERE ug.group_id = ?
+             ORDER BY u.username",
+        )
+        .bind(g.id)
+        .fetch_all(pool)
+        .await?;
+        result.push(GroupWithMembers {
+            id: g.id,
+            name: g.name,
+            members: rows.into_iter().map(|(id, username)| GroupMember { id, username }).collect(),
+        });
+    }
+    Ok(result)
+}
+
+pub async fn get_user_group_names(pool: &MySqlPool, user_id: u32) -> anyhow::Result<Vec<String>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT g.name FROM `groups` g
+         JOIN user_groups ug ON ug.group_id = g.id
+         WHERE ug.user_id = ?
+         ORDER BY g.name",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(n,)| n).collect())
+}
+
+pub async fn add_user_to_group(pool: &MySqlPool, user_id: u32, group_id: u32) -> anyhow::Result<()> {
+    sqlx::query("INSERT IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)")
+        .bind(user_id)
+        .bind(group_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn remove_user_from_group(pool: &MySqlPool, user_id: u32, group_id: u32) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM user_groups WHERE user_id = ? AND group_id = ?")
+        .bind(user_id)
+        .bind(group_id)
         .execute(pool)
         .await?;
     Ok(())

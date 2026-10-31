@@ -92,7 +92,15 @@ pub async fn render_note(
         drop(vault);
         return not_found(&state);
     }
-    if !current_user.is_admin && !entry.is_published {
+
+    let sees_all = current_user.is_admin || current_user.sees_all;
+    let sees_published = current_user.sees_published;
+
+    if !sees_all && !entry.is_published {
+        drop(vault);
+        return access_denied(&state);
+    }
+    if !sees_all && !sees_published && !current_user.can_see_group_note(&entry.required_groups) {
         drop(vault);
         return access_denied(&state);
     }
@@ -147,10 +155,25 @@ async fn render_markdown(
 ) -> Html<String> {
     let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
     let vault = state.vault.read().await;
-    let parsed = crate::parser::markdown::parse_markdown(&content, &vault);
+    let sees_all = current_user.is_admin || current_user.sees_all;
+    let parsed = crate::parser::markdown::parse_markdown(&content, &vault, sees_all);
     drop(vault);
 
     let page_title = if parsed.title.is_empty() { fallback_title } else { parsed.title.clone() };
+
+    let vault = state.vault.read().await;
+    let frontmatter: Vec<serde_json::Value> = vault.notes.get(&slug)
+        .map(|n| n.frontmatter.iter()
+            .map(|(k, v)| serde_json::json!({"key": k, "value": v}))
+            .collect())
+        .unwrap_or_default();
+    drop(vault);
+
+    let ext_meta = crate::external_meta::read(&state.config.server.vault_path);
+    let ext_groups: Vec<String> = ext_meta.get(&slug)
+        .and_then(|m| m.groups.clone())
+        .unwrap_or_default();
+    let can_edit_meta = current_user.is_admin;
 
     let mut ctx = tera::Context::new();
     ctx.insert("site_title", &state.config.server.site_title);
@@ -163,6 +186,9 @@ async fn render_markdown(
     ctx.insert("file_tree", &file_tree);
     ctx.insert("slug", &slug);
     ctx.insert("current_user", &current_user);
+    ctx.insert("frontmatter", &frontmatter);
+    ctx.insert("ext_groups", &ext_groups);
+    ctx.insert("can_edit_meta", &can_edit_meta);
 
     Html(state.tera.render("note.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }
@@ -235,8 +261,15 @@ async fn render_base(
 ) -> Html<String> {
     let yaml = tokio::fs::read_to_string(&path).await.unwrap_or_default();
     let vault = state.vault.read().await;
-    let bases_html = crate::parser::bases::render_base(&yaml, &vault);
+    let sees_all = current_user.is_admin || current_user.sees_all;
+    let bases_html = crate::parser::bases::render_base(&yaml, &vault, sees_all);
     drop(vault);
+
+    let ext_meta = crate::external_meta::read(&state.config.server.vault_path);
+    let ext_groups: Vec<String> = ext_meta.get(&slug)
+        .and_then(|m| m.groups.clone())
+        .unwrap_or_default();
+    let can_edit_meta = current_user.is_admin;
 
     let mut ctx = tera::Context::new();
     ctx.insert("site_title", &state.config.server.site_title);
@@ -246,6 +279,8 @@ async fn render_base(
     ctx.insert("file_tree", &file_tree);
     ctx.insert("slug", &slug);
     ctx.insert("current_user", &current_user);
+    ctx.insert("ext_groups", &ext_groups);
+    ctx.insert("can_edit_meta", &can_edit_meta);
 
     Html(state.tera.render("bases.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }
@@ -284,14 +319,19 @@ pub fn build_file_tree_json_filtered(
     let mut sorted: Vec<_> = vault.notes.values().collect();
     sorted.sort_by(|a, b| a.path.cmp(&b.path));
 
+    let sees_all = user.is_admin || user.sees_all;
+    let sees_published = user.sees_published;
+
     for note in sorted {
         // Apply list filters
         if bl.contains(&note.slug) { continue; }
         if !wl.is_empty() && !wl.contains(&note.slug) { continue; }
         // Apply user folder filter
         if !user.can_see_note(&note.slug) { continue; }
-        // Only show published notes to non-admins
-        if !user.is_admin && !note.is_published { continue; }
+        // Publish check (all_group bypasses, others need is_published)
+        if !sees_all && !note.is_published { continue; }
+        // Group check (all_group and published_group bypass per-note restrictions)
+        if !sees_all && !sees_published && !user.can_see_group_note(&note.required_groups) { continue; }
 
         let parts: Vec<&str> = note.path.split('/').collect();
         let kind = match note.kind {

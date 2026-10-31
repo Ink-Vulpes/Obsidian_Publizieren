@@ -7,6 +7,17 @@ export interface ManifestEntry {
 	modified: number; // unix seconds
 }
 
+export interface GroupMember {
+	id: number;
+	username: string;
+}
+
+export interface Group {
+	id: number;
+	name: string;
+	members: GroupMember[];
+}
+
 export interface UserWithPermissions {
 	id: number;
 	username: string;
@@ -17,6 +28,8 @@ export interface UserWithPermissions {
 		can_manage_users: boolean;
 		can_manage_lists: boolean;
 		folder_restriction: boolean;
+		sees_published: boolean;
+		sees_all: boolean;
 	};
 	allowed_folders: string[];
 }
@@ -190,6 +203,8 @@ export class ApiClient {
 			can_manage_users: boolean;
 			can_manage_lists: boolean;
 			folder_restriction: boolean;
+			sees_published: boolean;
+			sees_all: boolean;
 			folders?: string[];
 		},
 	): Promise<void> {
@@ -235,7 +250,7 @@ export class ApiClient {
 		});
 	}
 
-	async adminGetSettings(): Promise<{ publish_field: string }> {
+	async adminGetSettings(): Promise<{ publish_field: string; group_field: string }> {
 		const token = await this.ensureToken();
 		const resp = await fetch(this.url('/api/admin/settings'), {
 			headers: { 'Authorization': `Bearer ${token}` },
@@ -244,7 +259,7 @@ export class ApiClient {
 		return resp.json();
 	}
 
-	async adminSetSettings(settings: { publish_field: string }): Promise<void> {
+	async adminSetSettings(settings: { publish_field: string; group_field: string }): Promise<void> {
 		const token = await this.ensureToken();
 		const resp = await fetch(this.url('/api/admin/settings'), {
 			method: 'POST',
@@ -255,5 +270,109 @@ export class ApiClient {
 			body: JSON.stringify(settings),
 		});
 		if (!resp.ok) throw new Error('Einstellungen konnten nicht gespeichert werden');
+	}
+
+	// ── Group API ──────────────────────────────────────────────────────────────
+
+	async adminListGroups(): Promise<Group[]> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/admin/groups'), {
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Gruppen nicht verfügbar');
+		return resp.json();
+	}
+
+	async adminCreateGroup(name: string): Promise<{ ok: boolean; id: number }> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/admin/groups'), {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ name }),
+		});
+		if (!resp.ok) throw new Error('Gruppe konnte nicht erstellt werden');
+		return resp.json();
+	}
+
+	async adminDeleteGroup(groupId: number): Promise<void> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url(`/api/admin/groups/${groupId}`), {
+			method: 'DELETE',
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Gruppe konnte nicht gelöscht werden');
+	}
+
+	async adminAddGroupMember(groupId: number, userId: number): Promise<void> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url(`/api/admin/groups/${groupId}/members`), {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ user_id: userId }),
+		});
+		if (!resp.ok) throw new Error('Mitglied konnte nicht hinzugefügt werden');
+	}
+
+	async adminRemoveGroupMember(groupId: number, userId: number): Promise<void> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url(`/api/admin/groups/${groupId}/members/${userId}`), {
+			method: 'DELETE',
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Mitglied konnte nicht entfernt werden');
+	}
+
+	// ── External note metadata API ─────────────────────────────────────────────
+
+	async adminGetAllNoteMeta(): Promise<Record<string, { groups?: string[] }>> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/admin/note-meta'), {
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Externe Metadaten nicht verfügbar');
+		return resp.json();
+	}
+
+	async adminSetNoteMeta(slug: string, groups: string[]): Promise<void> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url(`/api/admin/note-meta/${slug}`), {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ groups }),
+		});
+		if (!resp.ok) throw new Error('Metadaten konnten nicht gespeichert werden');
+	}
+
+	async adminGetNoteList(): Promise<{ slug: string; title: string; kind: string }[]> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/files'), {
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Dateiliste nicht verfügbar');
+		const tree = await resp.json();
+		const notes: { slug: string; title: string; kind: string }[] = [];
+		function flatten(node: unknown) {
+			if (Array.isArray(node)) {
+				node.forEach(flatten);
+			} else if (node && typeof node === 'object') {
+				const n = node as Record<string, unknown>;
+				if (n['type'] === 'file') {
+					notes.push({ slug: n['slug'] as string, title: n['name'] as string, kind: n['kind'] as string });
+				} else if (n['children']) {
+					flatten(n['children']);
+				}
+			}
+		}
+		flatten(tree);
+		return notes.sort((a, b) => a.slug.localeCompare(b.slug));
 	}
 }

@@ -20,6 +20,12 @@ pub struct Claims {
     pub can_manage_lists: bool,
     pub folder_restriction: bool,
     pub allowed_folders: Vec<String>,
+    #[serde(default)]
+    pub groups: Vec<String>,
+    #[serde(default)]
+    pub sees_published: bool,
+    #[serde(default)]
+    pub sees_all: bool,
     pub exp: usize,
     pub iat: usize,
 }
@@ -36,6 +42,9 @@ pub struct CurrentUser {
     pub can_access_admin: bool,
     pub folder_restriction: bool,
     pub allowed_folders: Vec<String>,
+    pub groups: Vec<String>,
+    pub sees_published: bool,
+    pub sees_all: bool,
 }
 
 impl CurrentUser {
@@ -64,7 +73,19 @@ impl From<Claims> for CurrentUser {
             can_access_admin: c.is_admin || can_manage_users || can_manage_lists,
             folder_restriction: c.folder_restriction,
             allowed_folders: c.allowed_folders,
+            groups: c.groups,
+            sees_published: c.sees_published,
+            sees_all: c.sees_all,
         }
+    }
+}
+
+impl CurrentUser {
+    pub fn can_see_group_note(&self, required_groups: &[String]) -> bool {
+        if self.is_admin || required_groups.is_empty() {
+            return true;
+        }
+        required_groups.iter().any(|g| self.groups.contains(g))
     }
 }
 
@@ -79,6 +100,9 @@ pub fn create_jwt(
     can_manage_lists: bool,
     folder_restriction: bool,
     allowed_folders: Vec<String>,
+    groups: Vec<String>,
+    sees_published: bool,
+    sees_all: bool,
     duration_hours: i64,
     secret: &str,
 ) -> anyhow::Result<String> {
@@ -94,6 +118,9 @@ pub fn create_jwt(
         can_manage_lists,
         folder_restriction,
         allowed_folders,
+        groups,
+        sees_published,
+        sees_all,
         exp,
         iat: now,
     };
