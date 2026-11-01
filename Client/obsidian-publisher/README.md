@@ -1,193 +1,206 @@
-# Obsidian Publisher – Plugin
+# Obsidian Publisher — Plugin
 
-Ein Obsidian-Community-Plugin zum Synchronisieren und Verwalten eines selbst gehosteten [Obsidian Publisher Servers](../../Server/README.md).
+An Obsidian community plugin for syncing and managing a self-hosted [Obsidian Publisher server](../../Server/README.md).
 
 ---
 
 ## Features
 
-- **Sync-Engine** – Checksummen-basierter Abgleich (SHA-256) zwischen lokalem Vault und Server
-- **Ausstehende Änderungen** – Panel zeigt neue, geänderte und gelöschte Dateien vor dem Upload
-- **Konflikt-Auflösung** – bei Konflikten wählen: lokale oder Server-Version behalten
-- **Veröffentlichung umschalten** – Frontmatter-Feld per Befehl auf `true`/`false` umschalten
-- **Webseite öffnen** – Server direkt aus Obsidian öffnen, bereits eingeloggt (Auto-Login)
-- **Surfing-Plugin-Support** – Webseite öffnet sich im internen Browser, wenn das Surfing-Plugin aktiv ist
-- **Admin-Panel** – Nutzerverwaltung, Whitelist/Blacklist und Server-Einstellungen direkt aus Obsidian
-- **Protokoll-Panel** – Vollständiger Sync-Verlauf mit Zeitstempel und Statistiken
-- **Auto-Sync** – optionaler automatischer Abgleich in konfigurierbarem Intervall
+- **Sync engine** — checksum-based diff (SHA-256) between local vault and server
+- **Pending changes panel** — shows new, modified, and deleted files before upload
+- **Conflict resolution** — choose per-file whether to keep local or server version
+- **Toggle publish** — flip the frontmatter publish field on/off with a command
+- **Open website** — open the server directly from Obsidian, already logged in (auto-login)
+- **Surfing plugin support** — website opens in the internal browser when Surfing is active
+- **Admin panel** — manage users, groups, whitelist/blacklist, and server settings from Obsidian
+- **Log panel** — full sync history with timestamps and statistics
+- **Auto-sync** — optional automatic sync at a configurable interval
+- **External metadata** — override group assignments for notes without touching the vault files
 
 ---
 
 ## Installation
 
-Das Plugin ist nicht im Community-Plugin-Store verfügbar und muss manuell installiert werden.
+The plugin is not available in the Community Plugin store and must be installed manually.
 
-### Manuell (empfohlen für Entwicklung)
+### From a release (recommended)
 
-```bash
-# Plugin bauen
-cd Client/obsidian-publisher
-npm install
-npm run build
-```
-
-Anschließend den Ordner `Client/obsidian-publisher` (oder die gebauten Dateien `main.js`, `manifest.json`, `styles.css`) in den Vault-Plugin-Ordner kopieren:
+1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/Ink-Vulpes/Obsidian_Publizieren/releases).
+2. Place them in your vault's plugin folder:
 
 ```
 <vault>/.obsidian/plugins/obsidian-publisher/
 ├── main.js
-├── manifest.json
-└── styles.css    (falls vorhanden)
+└── manifest.json
 ```
 
-Dann in Obsidian: **Einstellungen → Community-Plugins → Obsidian Publisher** aktivieren.
+3. In Obsidian: **Settings → Community Plugins → Obsidian Publisher** — enable.
+
+### Build from source
+
+```bash
+cd Client/obsidian-publisher
+npm install
+npm run build
+```
+
+Copy the built `main.js` and `manifest.json` into the vault plugin folder above.
 
 ---
 
-## Konfiguration
+## Configuration
 
-**Einstellungen → Community-Plugins → Obsidian Publisher → Zahnrad-Icon**
+**Settings → Community Plugins → Obsidian Publisher → gear icon**
 
-| Einstellung               | Beschreibung                                              |
-|---------------------------|-----------------------------------------------------------|
-| **Server-URL**            | URL des Servers (z. B. `http://localhost:3000`)           |
-| **Benutzername**          | Obsidian-Publisher-Benutzername                          |
-| **Passwort**              | Wird nur für die erste Anmeldung verwendet                |
-| **Gerätename**            | Anzeigename dieses Geräts im Admin-Panel                  |
-| **Auto-Sync**             | Automatischer Abgleich aktivieren/deaktivieren           |
-| **Auto-Sync-Intervall**   | Intervall in Minuten (Standard: 30)                       |
-| **Sync beim Start**       | Direkt beim Öffnen von Obsidian synchronisieren          |
-
----
-
-## Ribbon-Icons
-
-| Icon             | Funktion                                                      |
-|------------------|---------------------------------------------------------------|
-| 🌐 Globus        | Webseite öffnen (auto-eingeloggt)                            |
-| ⇄ Git-Compare    | Ausstehende Änderungen anzeigen                              |
-| 🕐 History       | Protokoll-Panel öffnen                                       |
-| ⚙ Settings       | Admin-Panel öffnen                                           |
+| Setting                  | Description                                               |
+|--------------------------|-----------------------------------------------------------|
+| **Server URL**           | URL of the server (e.g. `http://localhost:3000`)          |
+| **Username**             | Obsidian Publisher username                               |
+| **Password**             | Used only for initial login                               |
+| **Device name**          | Display name for this device in the admin panel           |
+| **Auto-sync**            | Enable/disable automatic syncing                          |
+| **Auto-sync interval**   | Interval in minutes (default: 30)                         |
+| **Sync on startup**      | Sync immediately when Obsidian opens                      |
 
 ---
 
-## Befehle
+## Ribbon icons
 
-Alle Befehle sind über die Befehlspalette (`Ctrl+P` / `Cmd+P`) erreichbar:
-
-| Befehl                             | Beschreibung                                              |
-|------------------------------------|-----------------------------------------------------------|
-| **Ausstehende Änderungen anzeigen**| Öffnet das Änderungs-Panel                               |
-| **Protokoll-Panel öffnen**         | Öffnet den Sync-Verlauf als Side-Panel                   |
-| **Protokoll-Modal öffnen**         | Zeigt den Sync-Verlauf als Modal                         |
-| **Admin-Panel öffnen**             | Öffnet das Admin-Modal                                   |
-| **Webseite öffnen (eingeloggt)**   | Öffnet den Server im Browser, bereits angemeldet         |
-| **Stille Synchronisierung**        | Synchronisiert sofort ohne Modal                         |
-| **Veröffentlichung umschalten**    | Frontmatter-Publish-Feld der aktuellen Note umschalten   |
+| Icon           | Function                                              |
+|----------------|-------------------------------------------------------|
+| 🌐 Globe       | Open website (auto-logged in)                         |
+| ⇄ Git-compare  | Show pending changes                                  |
+| 🕐 History     | Open log panel                                        |
+| ⚙ Settings     | Open admin panel                                      |
 
 ---
 
-## Ausstehende Änderungen
+## Commands
 
-Das **Änderungs-Panel** (Ribbon: ⇄) zeigt alle Unterschiede zwischen lokalem Vault und Server:
+All commands are accessible via the command palette (`Ctrl+P` / `Cmd+P`):
 
-- **Hochladen** – lokale Datei ist neu oder geändert
-- **Herunterladen** – Server-Datei ist neuer
-- **Lokal löschen** – Datei existiert nur noch auf dem Server
-- **Remote löschen** – Datei existiert nur noch lokal
-
-Einzelne Dateien können per Checkbox ab-/ausgewählt werden. Bei Konflikten kann per Klick entschieden werden, welche Version behalten wird. Der **Sync**-Button führt die ausgewählten Aktionen aus.
+| Command                        | Description                                               |
+|--------------------------------|-----------------------------------------------------------|
+| **Show pending changes**       | Opens the changes panel                                   |
+| **Open log panel**             | Opens the sync history as a side panel                    |
+| **Open log modal**             | Shows the sync history as a modal                         |
+| **Open admin panel**           | Opens the admin modal                                     |
+| **Open website (logged in)**   | Opens the server in the browser, already authenticated    |
+| **Silent sync**                | Syncs immediately without showing a modal                 |
+| **Toggle publish**             | Flips the publish frontmatter field of the current note   |
+| **Reset server and upload vault** | Wipes server files and re-uploads the entire vault     |
 
 ---
 
-## Veröffentlichung umschalten
+## Pending changes
 
-Der Befehl **„Veröffentlichung umschalten"** liest das konfigurierte Publish-Feld vom Server (Admin-Panel → Einstellungen → Publish-Feld) und setzt es im Frontmatter der aktuell geöffneten Note:
+The **changes panel** (ribbon: ⇄) shows all differences between the local vault and the server:
 
-- Hat die Note noch kein Frontmatter, wird es automatisch angelegt.
-- `true` wird zu `false` und umgekehrt.
-- Hat die Note das Feld noch nicht, wird `true` eingetragen.
+- **Upload** — local file is new or modified
+- **Download** — server file is newer
+- **Delete locally** — file only exists on the server
+- **Delete remotely** — file only exists locally
+
+Individual files can be checked/unchecked. Conflicts can be resolved per-file by choosing which version to keep. The **Sync** button executes the selected actions.
+
+---
+
+## Toggle publish
+
+The **Toggle publish** command reads the configured publish field from the server (Admin Panel → Settings → Publish field) and sets it in the frontmatter of the currently open note:
+
+- If the note has no frontmatter yet, it is created automatically.
+- `true` becomes `false` and vice versa.
+- If the note does not yet have the field, it is set to `true`.
 
 ```yaml
 ---
-published: true   # ← wird zu false beim nächsten Ausführen
+published: true   # ← becomes false on next run
 ---
 ```
 
 ---
 
-## Webseite öffnen (Auto-Login)
+## Open website (auto-login)
 
-Der Befehl **„Webseite öffnen"** und der Globus-Ribbon öffnen den Server, ohne erneut einloggen zu müssen:
+The **Open website** command and the globe ribbon open the server without requiring a second login:
 
-- Das Plugin generiert einen temporären Auto-Login-Link (`/auto-login?token=…`).
-- Ist das [Surfing-Plugin](https://github.com/PKM-er/Obsidian-Surfing) installiert und aktiv, öffnet sich die Seite im **internen Browser**-Tab von Obsidian.
-- Andernfalls wird der System-Browser geöffnet.
-
----
-
-## Admin-Panel
-
-Das Admin-Modal (Ribbon: ⚙) hat vier Tabs:
-
-### Benutzer
-
-Zeigt alle registrierten Benutzer. Für Nicht-Admin-Nutzer können Berechtigungen direkt bearbeitet werden. Der Admin-Eintrag ist schreibgeschützt.
-
-| Berechtigung             | Beschreibung                                    |
-|--------------------------|-------------------------------------------------|
-| Hochladen                | Darf Dateien über die API hochladen             |
-| Benutzer verwalten       | Kann Einladungslinks erstellen, Rechte ändern   |
-| Listen verwalten         | Kann Whitelist/Blacklist bearbeiten             |
-| Ordner-Einschränkung     | Schränkt den Zugriff auf bestimmte Ordner ein   |
-
-### Einladung
-
-Erstellt einen einmaligen Einladungslink (48h gültig) für neue Benutzer.
-
-### White-/Blacklist
-
-- **Whitelist**: Wenn nicht leer, werden nur die eingetragenen Slugs auf dem Server angezeigt.
-- **Blacklist**: Diese Slugs werden immer versteckt.
-
-### Einstellungen
-
-Konfiguriert das **Publish-Feld** – den Frontmatter-Schlüssel, der als Veröffentlichungsschalter gilt. Leer lassen, um alle Notes für alle Nutzer anzuzeigen.
+- The plugin generates a temporary auto-login link (`/auto-login?token=…`).
+- If the [Surfing plugin](https://github.com/PKM-er/Obsidian-Surfing) is installed and active, the page opens in Obsidian's **internal browser tab**.
+- Otherwise, the system browser is opened.
 
 ---
 
-## Protokoll
+## Admin panel
 
-Das **Protokoll-Panel** (Ribbon: 🕐) zeigt den Verlauf aller Sync-Vorgänge:
+The admin modal (ribbon: ⚙) has the following tabs:
 
-- Zeitstempel
-- Anzahl hochgeladener / heruntergeladener / gelöschter Dateien
-- Fehler
+### Users
+
+Shows all registered users. Permissions can be edited for non-admin users. The admin entry is read-only.
+
+| Permission               | Description                                       |
+|--------------------------|---------------------------------------------------|
+| Upload                   | May upload files via the API                      |
+| Manage users             | Can create invitation links, edit permissions     |
+| Manage lists             | Can edit whitelist/blacklist                      |
+| Folder restriction       | Restricts access to specific folders              |
+| Sees published           | Sees all published notes, ignoring group access   |
+| Sees all                 | Sees everything including unpublished notes        |
+
+### Invitation
+
+Creates a one-time invitation link (valid for 48 hours) for new users.
+
+### Whitelist / Blacklist
+
+- **Whitelist**: If non-empty, only the listed slugs are shown on the server.
+- **Blacklist**: These slugs are always hidden.
+
+### Settings
+
+Configures the **publish field** — the frontmatter key used as a publish toggle. Also configures the **group field**. Leave the publish field empty to show all notes to all users.
+
+### External Metadata
+
+Override the group assignment for notes without touching the vault files. Useful when the vault is read-only or the notes are shared with others.
 
 ---
 
-## Entwicklung
+## Log
+
+The **log panel** (ribbon: 🕐) shows the history of all sync operations:
+
+- Timestamp
+- Number of uploaded / downloaded / deleted files
+- Errors
+
+---
+
+## Development
 
 ```bash
 cd Client/obsidian-publisher
 
-# Abhängigkeiten installieren
+# Install dependencies
 npm install
 
-# Entwicklungs-Build (watch mode)
+# Development build (watch mode)
 npm run dev
 
-# Produktions-Build
+# Production build
 npm run build
 ```
 
-Der Build erzeugt `main.js` im Plugin-Verzeichnis. Für schnelles Testen kann `main.js` direkt in den Vault-Plugin-Ordner kopiert werden und das Plugin in Obsidian neu geladen werden (**Ctrl+R** oder Plugin deaktivieren/aktivieren).
+The build produces `main.js` in the plugin directory. For quick testing, copy `main.js` directly to the vault plugin folder and reload the plugin in Obsidian (**Ctrl+R** or disable/enable the plugin).
 
-### Technologie-Stack
+---
 
-| Komponente     | Technologie                                       |
-|----------------|---------------------------------------------------|
-| Sprache        | TypeScript                                        |
-| Framework      | [Obsidian Plugin API](https://github.com/obsidianmd/obsidian-api) |
-| Build          | [esbuild](https://esbuild.github.io/) 0.21        |
-| API-Transport  | `fetch` (Bearer-Token-Auth)                       |
+## Tech stack
+
+| Component   | Technology                                                        |
+|-------------|-------------------------------------------------------------------|
+| Language    | TypeScript                                                        |
+| Framework   | [Obsidian Plugin API](https://github.com/obsidianmd/obsidian-api) |
+| Build       | [esbuild](https://esbuild.github.io/) 0.21                        |
+| API         | `fetch` (Bearer token auth, JWT)                                  |
