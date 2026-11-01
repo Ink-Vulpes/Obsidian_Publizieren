@@ -23,9 +23,10 @@ export interface SyncAction {
 
 // These .obsidian/ files are device-specific or ephemeral and excluded from sync.
 const SETTINGS_EXCLUDE_LIST = new Set([
-	'.obsidian/workspace.json',       // open tabs / panel layout — per device
-	'.obsidian/workspace-mobile.json', // mobile layout — per device
-	'.obsidian/graph.json',            // graph view state (zoom/pan) — per device
+	'.obsidian/workspace.json',                              // open tabs / panel layout — per device
+	'.obsidian/workspace-mobile.json',                       // mobile layout — per device
+	'.obsidian/graph.json',                                  // graph view state (zoom/pan) — per device
+	'.obsidian/plugins/obsidian-publisher/data.json',        // this plugin's own settings (credentials, device id, sync state)
 ]);
 
 const SETTINGS_EXCLUDE_PREFIXES = [
