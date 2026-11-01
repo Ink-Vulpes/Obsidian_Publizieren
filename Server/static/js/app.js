@@ -114,12 +114,15 @@ function renderMetadataLinks() {
 }
 
 function metaValueToHtml(text) {
-  // List values: [item1, item2, ...]  — parse each item separately.
-  // Detect our server-generated list format (starts and ends with [ ]) but is
-  // NOT a Markdown link (which starts with [text](url)).
+  // Single wikilinks [[...]] and Markdown links [text](url) are handled
+  // directly — check before list detection so [[Note]] isn't stripped to [Note]
+  // by the list bracket regex.
+  if (isSingleLink(text)) {
+    return singleItemToHtml(text);
+  }
+  // List values: [item1, item2, ...] — split each item and render separately.
   const listMatch = text.match(/^\[(.+)\]$/);
-  if (listMatch && !text.match(/^\[.+\]\(.+\)$/)) {
-    // Split on ", " but not inside [[...]] or (...)
+  if (listMatch) {
     const items = splitListItems(listMatch[1]);
     if (items.length > 1 || !isSingleLink(listMatch[1])) {
       return items.map(item => '<span class="meta-list-item">' + singleItemToHtml(item.trim()) + '</span>').join('');

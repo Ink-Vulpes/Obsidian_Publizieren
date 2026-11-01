@@ -1,65 +1,62 @@
 # Obsidian Publisher
 
-Ein selbst gehostetes System zum Veröffentlichen von Obsidian-Vaults als Website – mit Authentifizierung, Benutzerverwaltung und direkter Sync-Integration über ein Obsidian-Plugin.
+A self-hosted system for publishing Obsidian vaults as a website — with authentication, user management, groups, and direct sync integration via an Obsidian plugin.
 
 ```
 obsidian-publisher/
-├── Server/        Rust/Axum-Webserver + MySQL
-└── Client/        Obsidian-Plugin (TypeScript)
+├── Server/        Rust/Axum web server + MySQL
+└── Client/        Obsidian plugin (TypeScript)
 ```
 
 ---
 
-## Überblick
+## Overview
 
-| Komponente | Beschreibung |
-|------------|-------------|
-| **Server** | Rendert den Vault als Website mit Explorer, Graph, Suche und Admin-Panel |
-| **Plugin** | Synchronisiert den lokalen Vault mit dem Server direkt aus Obsidian |
+| Component | Description |
+|-----------|-------------|
+| **Server** | Renders the vault as a website with explorer, graph, search, and admin panel |
+| **Plugin** | Syncs the local vault with the server directly from Obsidian |
 
-Das System ersetzt Cloud-Dienste wie Obsidian Publish durch eine vollständig selbst kontrollierte Lösung.
+This system replaces cloud services like Obsidian Publish with a fully self-controlled solution.
 
 ---
 
-## Schnellstart
+## Quick start
 
-### 1. Server starten
+### 1. Start the server
 
 ```bash
 cd Server
-cp config.yml.example config.yml   # Konfiguration anpassen
+cp config.yml.example config.yml   # adjust configuration
 docker compose up -d
 ```
 
 → **http://localhost:3000**
 
-### 2. Plugin installieren
+### 2. Install the plugin
 
-```bash
-cd Client/obsidian-publisher
-npm install && npm run build
-```
-
-Den Ordner in den Vault-Plugin-Ordner kopieren:
+Download the latest release from [GitHub Releases](https://github.com/Ink-Vulpes/Obsidian_Publizieren/releases) and place the files in your vault's plugin folder:
 
 ```
 <vault>/.obsidian/plugins/obsidian-publisher/
+├── main.js
+└── manifest.json
 ```
 
-In Obsidian: **Einstellungen → Community-Plugins → Obsidian Publisher** aktivieren und Server-URL + Zugangsdaten eintragen.
+Then in Obsidian: **Settings → Community Plugins → Obsidian Publisher** — enable and enter your server URL and credentials.
 
 ---
 
-## Dokumentation
+## Documentation
 
-- [Server →](Server/README.md) – Docker-Setup, Konfiguration, API-Referenz, Benutzer & Berechtigungen
-- [Plugin →](Client/obsidian-publisher/README.md) – Installation, Befehle, Ribbon-Icons, Admin-Modal
+- [Server →](Server/README.md) — Docker setup, configuration, API reference, users & permissions
+- [Plugin →](Client/obsidian-publisher/README.md) — installation, commands, ribbon icons, admin modal
 
 ---
 
-## Technologie
+## Tech stack
 
-| Schicht    | Technologie                                  |
+| Layer      | Technology                                   |
 |------------|----------------------------------------------|
 | Server     | Rust · Axum · Tera · sqlx · MySQL 8          |
 | Plugin     | TypeScript · Obsidian API · esbuild          |

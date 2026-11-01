@@ -1,0 +1,11 @@
+# Development overlay — mounts local static files for live CSS/JS editing.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Changes to Server/static/ take effect on the next browser refresh.
+# Do NOT use this in production — the image already bundles the static files.
+
+services:
+  web:
+    pull_policy: never
+    volumes:
+      - ./static:/app/static:ro

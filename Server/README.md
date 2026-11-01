@@ -1,6 +1,6 @@
-# Obsidian Publisher – Server
+# Obsidian Publisher — Server
 
-Ein selbst gehosteter Web-Server, der eine Obsidian-Vault live im Browser rendert – ähnlich wie [Quartz](https://quartz.jzhao.xyz/), aber vollständig in Rust mit MySQL-Authentifizierung und HTTP-Upload.
+A self-hosted web server that renders an Obsidian vault live in the browser — similar to [Quartz](https://quartz.jzhao.xyz/), but written entirely in Rust with MySQL authentication and HTTP upload.
 
 ![Rust](https://img.shields.io/badge/built_with-Rust-orange) ![Docker](https://img.shields.io/badge/deploy-Docker-blue)
 
@@ -8,134 +8,130 @@ Ein selbst gehosteter Web-Server, der eine Obsidian-Vault live im Browser render
 
 ## Features
 
-- **3-Spalten-Layout** (Explorer · Inhalt · TOC/Backlinks/Graph) mit Dark/Light-Mode
-- **Obsidian-Wikilinks** `[[Note]]` und `[[Note|Alias]]` werden zu klickbaren Links aufgelöst
-- **Backlinks** – welche Notes verweisen auf die aktuelle?
-- **Lokaler D3-Graph** – Beziehungen zwischen Notes visualisiert
-- **Volltextsuche** (Ctrl+K) über alle veröffentlichten Notes
-- **LaTeX / MathJax 3** – `$inline$` und `$$block$$` werden gerendert
-- **Bild-Embeds** `![[bild.png]]` als `<img>`, Pfad wird vault-weit aufgelöst
-- **PDF-Links** öffnen die Datei direkt im Browser
-- **Callouts** (`> [!info]`, `> [!warning]` usw.) im Obsidian-Stil
-- **Canvas** (`.canvas`) und **Excalidraw** werden gerendert
-- **Tags**, **Inhaltsverzeichnis**, **Anker-Links** an Überschriften
-- **Authentifizierung** – Login, Einladungslinks, Rollen und Berechtigungen per Admin-Panel
-- **Publish-Feld-Filter** – nur Notes mit einem konfigurierbaren Frontmatter-Feld `= true` werden für Nicht-Admins angezeigt
-- **HTTP-Upload** via Obsidian-Plugin oder `publish.py` – Checksummen-basierter Sync (SHA-256)
-- **Auto-Login** – Einmaliger Token-Link für nahtlose Weiterleitung aus dem Obsidian-Plugin
+- **3-column layout** (Explorer · Content · TOC/Backlinks/Graph) with dark/light mode
+- **Obsidian wikilinks** `[[Note]]` and `[[Note|Alias]]` resolved to clickable links
+- **Backlinks** — which notes link to the current one?
+- **Local D3 graph** — relationships between notes visualized
+- **Full-text search** (Ctrl+K) across all published notes
+- **LaTeX / MathJax 3** — `$inline$` and `$$block$$` rendered
+- **Image embeds** `![[image.png]]` as `<img>`, path resolved vault-wide
+- **PDF links** open the file directly in the browser
+- **Callouts** (`> [!info]`, `> [!warning]`, etc.) in Obsidian style
+- **Canvas** (`.canvas`) and **Excalidraw** (`.excalidraw`) rendered with white background
+- **Obsidian Bases** (`.base`) rendered as filterable/sortable tables
+- **Tags**, **table of contents**, **anchor links** on headings
+- **Metadata sidebar** — frontmatter values shown as clickable links (wikilinks and Markdown links)
+- **JWT authentication** — login, invitation links, roles and permissions via admin panel
+- **Groups** — assign notes to groups and restrict user access per group
+- **Publish-field filter** — only notes with a configurable frontmatter field set to `true` are visible to non-admins
+- **HTTP upload** via Obsidian plugin — checksum-based sync (SHA-256)
+- **Auto-login** — one-time token link for seamless redirect from the Obsidian plugin
 
 ---
 
-## Schnellstart mit Docker
+## Quick start with Docker
 
-### Voraussetzungen
+### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac/Linux)
-- Python 3.9+ (nur für `publish.py`)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows / Mac / Linux)
 
-### 1. Repository klonen
+### 1. Clone the repository
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Ink-Vulpes/Obsidian_Publizieren.git
 cd Server
 ```
 
-### 2. Konfiguration anlegen
+### 2. Create configuration
 
 ```bash
 cp config.yml.example config.yml
 ```
 
-Wichtige Einstellungen in `config.yml`:
+Key settings in `config.yml`:
 
 ```yaml
 server:
   port: 3000
   vault_path: "/vault"
-  site_title: "Mein Digital Garden"
+  site_title: "My Digital Garden"
   base_url: "http://localhost:3000"
 
 database:
   url: "mysql://obsidian:changeme@mysql:3306/obsidian"
 
 auth:
-  session_secret: "MINDESTENS_64_ZUFAELLIGE_ZEICHEN_HIER_EINTRAGEN!!!"
+  session_secret: "AT_LEAST_64_RANDOM_CHARACTERS_HERE!!!"
   session_duration_hours: 168
 
 admin:
   username: "admin"
-  password: "changeme"   # beim ersten Start ändern!
+  password: "changeme"   # change on first start!
 ```
 
-Optionale Anpassungen per `.env`-Datei:
+Optional overrides via `.env` file:
 
 ```env
 WEB_PORT=3000
-MYSQL_ROOT_PASSWORD=sicheres-root-passwort
-MYSQL_PASS=sicheres-db-passwort
+MYSQL_ROOT_PASSWORD=secure-root-password
+MYSQL_PASS=secure-db-password
 RUST_LOG=info
 ```
 
-### 3. Container starten
+### 3. Start containers
 
 ```bash
 docker compose up -d
 ```
 
-Der Web-Server läuft auf **http://localhost:3000**.
+The web server runs at **http://localhost:3000**.
 
-Beim ersten Start:
-1. Datenbank-Migrationen werden automatisch ausgeführt.
-2. Der Admin-Benutzer (aus `config.yml`) wird angelegt, sofern noch kein Benutzer existiert.
-3. Der Vault wird indiziert.
+On first start:
+1. Database migrations run automatically.
+2. The admin user (from `config.yml`) is created if no user exists yet.
+3. The vault is indexed.
 
-### 4. Admin-Panel
+### 4. Admin panel
 
-Unter **http://localhost:3000/admin** (nach Login):
+At **http://localhost:3000/admin** (after login):
 
-| Tab | Funktion |
+| Tab | Function |
 |-----|----------|
-| **Benutzer** | Nutzer anzeigen, Berechtigungen bearbeiten, Einladungslinks erstellen |
-| **Whitelist / Blacklist** | Sichtbarkeit einzelner Notes steuern |
-| **Einstellungen** | Publish-Feld konfigurieren |
+| **Users** | View users, edit permissions, create invitation links |
+| **Groups** | Create groups and assign notes to them |
+| **Whitelist / Blacklist** | Control visibility of individual notes |
+| **Settings** | Configure publish field and group field |
 
-### 5. Publish-Feld konfigurieren
+### 5. Configure the publish field
 
-Im Admin-Panel → **Einstellungen** kann ein Frontmatter-Feld als Veröffentlichungsschalter festgelegt werden (Standard: `published`).
+In the admin panel → **Settings**, set a frontmatter field as the publish toggle (default: `published`).
 
-Notes mit `published: true` (bzw. dem konfigurierten Feldnamen) sind für alle Nutzer sichtbar. Notes ohne dieses Feld oder mit `false` sind nur für Admins sichtbar. Wird das Feld leer gelassen, sind alle Notes für alle Nutzer sichtbar.
+Notes with `published: true` (or the configured field name) are visible to all users. Notes without this field or with `false` are only visible to admins. Leaving the field empty makes all notes visible to everyone.
 
-Beispiel-Frontmatter:
+Example frontmatter:
 
 ```yaml
 ---
 published: true
-title: Mein Artikel
+title: My Article
 ---
 ```
 
 ---
 
-## Image veröffentlichen (ghcr.io)
+## Deploying the Docker image
 
-Das fertige Docker-Image liegt auf der **GitHub Container Registry** unter `ghcr.io/ink-vulpes/obsidian-publisher`.
+The pre-built image is available on the **GitHub Container Registry** at `ghcr.io/ink-vulpes/obsidian-publisher`.
 
-### Image bauen & pushen
-
-```bash
-bash push-image.sh          # baut und pusht als :latest
-bash push-image.sh 1.0.0    # baut und pusht als :1.0.0 + :latest
-```
-
-### Auf dem Server deployen
+### Deploy on a server
 
 ```bash
-echo "DEIN_TOKEN" | docker login ghcr.io -u Ink-Vulpes --password-stdin
+echo "YOUR_TOKEN" | docker login ghcr.io -u Ink-Vulpes --password-stdin
 docker compose pull
 docker compose up -d
 ```
 
-Update:
+Update to the latest version:
 
 ```bash
 docker compose pull && docker compose up -d
@@ -143,44 +139,9 @@ docker compose pull && docker compose up -d
 
 ---
 
-## Notes hochladen
+## Configuration reference
 
-### Via Obsidian-Plugin (empfohlen)
-
-Das Plugin synchronisiert den Vault direkt über die HTTP-API. Siehe [Client README](../Client/obsidian-publisher/README.md).
-
-### Via publish.py
-
-```bash
-# Lokal
-python publish.py /pfad/zur/obsidian-vault
-
-# Remote
-python publish.py /pfad/zur/obsidian-vault --server https://notes.example.com --user admin --yes
-```
-
-**Optionen:**
-
-| Flag | Beschreibung |
-|------|-------------|
-| `--server URL` | Server-URL (Standard: `http://localhost:3000`) |
-| `--user NAME` | Benutzername (wird sonst interaktiv abgefragt) |
-| `--yes` / `-y` | Alle Änderungen ohne Rückfrage synchronisieren |
-
-**Ablauf:**
-1. Anmeldung per Bearer-Token (`/api/auth/token`)
-2. Server-Manifest laden (SHA-256-Checksummen)
-3. Diff berechnen und anzeigen
-4. Upload / Löschen durchführen
-5. `/api/reload` – Server indiziert sofort neu
-
-> Der Benutzer benötigt die Berechtigung **„Darf Dateien hochladen"** (im Admin-Panel setzbar). Der Admin hat sie automatisch.
-
----
-
-## Konfiguration
-
-### config.yml (vollständig)
+### config.yml (complete)
 
 ```yaml
 server:
@@ -194,167 +155,191 @@ database:
   url: "mysql://obsidian:changeme@mysql:3306/obsidian"
 
 auth:
-  session_secret: "64+ Zeichen langer Zufallsstring"
-  session_duration_hours: 168   # 7 Tage
+  session_secret: "64+ character random string"
+  session_duration_hours: 168   # 7 days
 
 admin:
   username: "admin"
   password: "changeme"
 ```
 
-### .env (Docker-Variablen)
+### .env (Docker variables)
 
-| Variable               | Standard          | Beschreibung                          |
-|------------------------|-------------------|---------------------------------------|
-| `WEB_PORT`             | `3000`            | HTTP-Port des Web-Servers             |
-| `MYSQL_ROOT_PASSWORD`  | `rootchangeme`    | MySQL-Root-Passwort                   |
-| `MYSQL_PASS`           | `changeme`        | MySQL-Passwort für den App-Benutzer   |
-| `RUST_LOG`             | `info`            | Log-Level (`debug`, `info`, `warn`)   |
-
----
-
-## Benutzer & Berechtigungen
-
-| Berechtigung         | Beschreibung                                    |
-|----------------------|-------------------------------------------------|
-| `is_admin`           | Vollzugriff; Berechtigungen nicht änderbar      |
-| `can_upload`         | Darf Dateien per API hochladen                  |
-| `can_manage_users`   | Kann Nutzer einladen und Rechte bearbeiten      |
-| `can_manage_lists`   | Kann Whitelist / Blacklist bearbeiten           |
-| `folder_restriction` | Beschränkt Zugriff auf bestimmte Ordner         |
-
-Neue Benutzer werden per **Einladungslink** (48h gültig) registriert. Einladungslinks werden im Admin-Panel erstellt.
-
-Der Admin-Benutzer kann weder bearbeitet noch gelöscht werden.
+| Variable               | Default           | Description                              |
+|------------------------|-------------------|------------------------------------------|
+| `WEB_PORT`             | `3000`            | HTTP port of the web server              |
+| `MYSQL_ROOT_PASSWORD`  | `rootchangeme`    | MySQL root password                      |
+| `MYSQL_PASS`           | `changeme`        | MySQL password for the app user          |
+| `RUST_LOG`             | `info`            | Log level (`debug`, `info`, `warn`)      |
 
 ---
 
-## Note-Frontmatter
+## Users & permissions
+
+| Permission           | Description                                           |
+|----------------------|-------------------------------------------------------|
+| `is_admin`           | Full access; permissions cannot be changed            |
+| `can_upload`         | May upload files via the API                          |
+| `can_manage_users`   | Can invite users and edit their permissions           |
+| `can_manage_lists`   | Can edit whitelist / blacklist                        |
+| `folder_restriction` | Restricts access to specific folders                  |
+| `sees_published`     | Sees all published notes, ignoring group membership   |
+| `sees_all`           | Sees everything including unpublished notes           |
+
+New users are registered via **invitation links** (valid for 48 hours), created in the admin panel.
+
+The admin user can neither be edited nor deleted.
+
+---
+
+## Groups
+
+Groups control which notes a user can see beyond publicly published ones.
+
+- Each note can have a `group` frontmatter field (configurable in Settings).
+- Users are assigned to one or more groups in the admin panel.
+- A user without `sees_published` or `sees_all` only sees notes whose group they belong to (plus publicly published notes).
+
+---
+
+## Note frontmatter
 
 ```yaml
 ---
-title: Mein Artikel
-description: Eine kurze Zusammenfassung
-tags: [biologie, abitur]
+title: My Article
+description: A short summary
+tags: [biology, science]
 published: true
+group: biology-students
 ---
 ```
 
-| Feld             | Bedeutung                                              |
-|------------------|--------------------------------------------------------|
-| `title`          | Angezeigter Titel (sonst Dateiname)                    |
-| `description`    | Meta-Description und Vorschautext                      |
-| `tags`           | Tag-Liste (Array oder YAML-Liste)                      |
-| *(publish-feld)* | Beliebiger Name, im Admin-Panel konfigurierbar         |
+| Field            | Purpose                                                 |
+|------------------|---------------------------------------------------------|
+| `title`          | Displayed title (falls back to filename)                |
+| `description`    | Meta description and preview text                       |
+| `tags`           | Tag list (array or YAML list)                           |
+| *(publish field)*| Configurable name; set in admin panel                   |
+| *(group field)*  | Configurable name; controls group visibility            |
 
 ---
 
-## API-Endpunkte
+## API reference
 
-### Öffentlich
+### Public
 
-| Endpunkt               | Beschreibung                                        |
-|------------------------|-----------------------------------------------------|
-| `GET /`                | Startseite / Weiterleitung zur ersten sichtbaren Note |
-| `GET /note/:slug`      | Note rendern                                        |
-| `GET /api/search?q=`   | Volltextsuche (JSON)                                |
-| `GET /api/graph`       | Graph-Daten (Nodes + Links) als JSON                |
-| `GET /static/`         | CSS, JS, Fonts                                      |
-| `POST /api/auth/token` | Bearer-Token per Benutzername + Passwort            |
-| `GET /auto-login`      | Token → Session-Cookie + Redirect (für Plugin)      |
+| Endpoint               | Description                                          |
+|------------------------|------------------------------------------------------|
+| `GET /`                | Homepage / redirect to first visible note            |
+| `GET /note/:slug`      | Render a note                                        |
+| `GET /api/search?q=`   | Full-text search (JSON)                              |
+| `GET /api/graph`       | Graph data (nodes + links) as JSON                   |
+| `GET /static/`         | CSS, JS, fonts                                       |
+| `POST /api/auth/token` | Bearer token via username + password                 |
+| `GET /auto-login`      | Token → session cookie + redirect (for plugin)       |
 
-### Authentifiziert (Session-Cookie oder Bearer-Token)
+### Authenticated (session cookie or bearer token)
 
-| Endpunkt                              | Berechtigung   | Beschreibung                              |
-|---------------------------------------|----------------|-------------------------------------------|
-| `GET /api/reload`                     | Upload         | Vault neu indizieren                      |
-| `GET /api/files`                      | –              | Dateiliste (gefiltert nach Benutzer)      |
-| `GET /api/files/manifest`             | Upload         | SHA-256-Checksummen aller Vault-Dateien   |
-| `POST /api/upload`                    | Upload         | Datei hochladen (multipart/form-data)     |
-| `DELETE /api/files/delete`            | Upload         | Datei löschen (`?path=pfad`)              |
-| `GET /api/sync/download`              | –              | Datei herunterladen (`?path=pfad`)        |
-| `POST /api/sync/device`               | –              | Gerät registrieren                        |
-| `GET /admin`                          | Admin          | Admin-Panel (HTML)                        |
-| `GET /api/admin/users`                | Nutzer-Mgmt    | Benutzerliste (JSON)                      |
-| `POST /api/admin/users/:id/permissions` | Nutzer-Mgmt  | Berechtigungen aktualisieren              |
-| `GET /api/admin/lists`                | Listen-Mgmt    | Whitelist + Blacklist (JSON)              |
-| `POST /api/admin/lists`               | Listen-Mgmt    | Whitelist + Blacklist setzen              |
-| `GET /api/admin/settings`             | Admin          | Server-Einstellungen (publish_field)      |
-| `POST /api/admin/settings`            | Admin          | Server-Einstellungen speichern            |
+| Endpoint                                  | Permission     | Description                               |
+|-------------------------------------------|----------------|-------------------------------------------|
+| `GET /api/reload`                         | Upload         | Re-index vault                            |
+| `GET /api/files`                          | —              | File list (filtered by user)              |
+| `GET /api/files/manifest`                 | Upload         | SHA-256 checksums of all vault files      |
+| `POST /api/upload`                        | Upload         | Upload a file (multipart/form-data)       |
+| `DELETE /api/files/delete`                | Upload         | Delete a file (`?path=…`)                 |
+| `GET /api/sync/download`                  | —              | Download a file (`?path=…`)               |
+| `POST /api/sync/device`                   | —              | Register a device                         |
+| `GET /admin`                              | Admin          | Admin panel (HTML)                        |
+| `GET /api/admin/users`                    | User mgmt      | User list (JSON)                          |
+| `POST /api/admin/users/:id/permissions`   | User mgmt      | Update permissions                        |
+| `DELETE /api/admin/users/:id`             | Admin          | Delete a user                             |
+| `GET /api/admin/lists`                    | List mgmt      | Whitelist + blacklist (JSON)              |
+| `POST /api/admin/lists`                   | List mgmt      | Set whitelist + blacklist                 |
+| `GET /api/admin/settings`                 | Admin          | Server settings (JSON)                    |
+| `POST /api/admin/settings`                | Admin          | Save server settings                      |
+| `GET /api/admin/groups`                   | Admin          | List groups with members (JSON)           |
+| `POST /api/admin/groups`                  | Admin          | Create a group                            |
+| `DELETE /api/admin/groups/:id`            | Admin          | Delete a group                            |
+| `POST /api/admin/groups/:id/members`      | Admin          | Add user to group                         |
+| `DELETE /api/admin/groups/:id/members/:uid` | Admin        | Remove user from group                    |
 
 ---
 
-## Projektstruktur
+## Project structure
 
 ```
 Server/
 ├── src/
-│   ├── main.rs              # Axum-Server, Routen, AppState
-│   ├── auth.rs              # Session-Middleware, CurrentUser
-│   ├── config.rs            # Konfiguration aus config.yml
-│   ├── db.rs                # MySQL via sqlx (Migrationen, CRUD)
-│   ├── vault.rs             # Vault-Indizierung, Publish-Filter, Wikilinks
-│   ├── parser/
-│   │   ├── markdown.rs      # Markdown → HTML (comrak + MathJax)
-│   │   ├── canvas.rs        # Obsidian-Canvas-Renderer
-│   │   └── excalidraw.rs    # Excalidraw-Renderer
+│   ├── main.rs              # Axum server, routes, AppState
+│   ├── auth.rs              # JWT middleware, CurrentUser
+│   ├── config.rs            # Configuration from config.yml
+│   ├── db.rs                # MySQL via sqlx (migrations, CRUD)
+│   ├── vault.rs             # Vault indexing, publish filter, wikilinks
+│   ├── external_meta.rs     # External metadata overrides (groups, etc.)
+│   └── parser/
+│       ├── markdown.rs      # Markdown → HTML (comrak + MathJax)
+│       ├── bases.rs         # Obsidian Bases renderer
+│       ├── canvas.rs        # Obsidian Canvas renderer
+│       └── excalidraw.rs    # Excalidraw data extractor
 │   └── routes/
-│       ├── note.rs          # GET /note/:slug, Dateibaum
-│       ├── api.rs           # Upload, Manifest, Reload, Sync
-│       ├── auth.rs          # Login, Logout, Register, Token, Auto-Login
-│       └── admin.rs         # Admin-Panel, Nutzerverwaltung, Einstellungen
+│       ├── note.rs          # GET /note/:slug, file tree
+│       ├── api.rs           # Upload, manifest, reload, sync
+│       ├── auth.rs          # Login, logout, register, token, auto-login
+│       └── admin.rs         # Admin panel, user management, settings, groups
 ├── templates/
-│   ├── base.html            # Layout (Sidebar, MathJax, D3)
-│   ├── note.html            # Note-Ansicht
-│   ├── index.html           # Startseite
-│   ├── canvas.html          # Canvas-Ansicht
-│   ├── excalidraw.html      # Excalidraw-Ansicht
-│   ├── login.html           # Login-Seite
-│   ├── register.html        # Registrierung per Einladungslink
-│   ├── admin.html           # Admin-Panel
-│   └── uploader.html        # Uploader-UI
+│   ├── base.html            # Layout (sidebar, MathJax, D3)
+│   ├── note.html            # Note view
+│   ├── bases.html           # Bases view
+│   ├── canvas.html          # Canvas view
+│   ├── excalidraw.html      # Excalidraw view
+│   ├── login.html           # Login page
+│   ├── register.html        # Registration via invitation link
+│   └── admin.html           # Admin panel
 ├── migrations/
-│   ├── 001_init.sql         # Benutzer, Sessions, Listen
-│   ├── 002_sync.sql         # Vault-Dateien, Sync-Geräte
-│   └── 003_settings.sql     # App-Einstellungen (publish_field)
+│   ├── 001_init.sql         # Users, sessions, lists
+│   ├── 002_sync.sql         # Vault files, sync devices
+│   ├── 003_settings.sql     # App settings (publish_field)
+│   ├── 004_jwt.sql          # JWT token storage
+│   ├── 005_groups.sql       # Groups and group membership
+│   └── 006_user_visibility.sql  # sees_published / sees_all permissions
 ├── static/
 │   ├── css/style.css        # Design
-│   ├── js/app.js            # Explorer, Dark Mode, Callouts
-│   ├── js/search.js         # Volltextsuche
-│   └── js/graph.js          # D3-Graph
-├── config.yml.example       # Konfigurationsvorlage
-├── Dockerfile               # Multi-Stage: rust → debian:bookworm-slim
-├── docker-compose.yml       # Web-Server + MySQL
-└── publish.py               # Upload-Script (HTTP API)
+│   ├── js/app.js            # Explorer, dark mode, metadata links
+│   ├── js/search.js         # Full-text search
+│   ├── js/graph.js          # D3 graph
+│   ├── js/excalidraw-embed.js   # Excalidraw renderer (embeds + pages)
+│   └── js/excalidraw-page.js    # Standalone Excalidraw page renderer
+├── config.yml.example       # Configuration template
+├── Dockerfile               # Multi-stage: rust → debian:bookworm-slim
+└── docker-compose.yml       # Web server + MySQL
 ```
 
 ---
 
-## Lokale Entwicklung (ohne Docker)
+## Local development (without Docker)
 
 ```bash
-# Voraussetzungen: Rust ≥ 1.77 (rustup), laufende MySQL-Instanz
+# Prerequisites: Rust ≥ 1.77 (rustup), running MySQL instance
 
-cp config.yml.example config.yml   # Datenbank-URL anpassen
+cp config.yml.example config.yml   # adjust database URL
 
-cargo run                           # Server starten
-RUST_LOG=debug cargo run            # Mit Debug-Logging
+cargo run                           # start server
+RUST_LOG=debug cargo run            # with debug logging
 ```
 
-Server startet auf http://localhost:3000.
+Server starts at http://localhost:3000.
 
 ---
 
-## Technologie-Stack
+## Tech stack
 
-| Komponente       | Technologie                                                          |
+| Component        | Technology                                                           |
 |------------------|----------------------------------------------------------------------|
-| Web-Server       | Rust · [Axum](https://github.com/tokio-rs/axum) 0.7                 |
-| Templates        | [Tera](https://keats.github.io/tera/) (Jinja2-kompatibel)           |
+| Web server       | Rust · [Axum](https://github.com/tokio-rs/axum) 0.7                 |
+| Templates        | [Tera](https://keats.github.io/tera/) (Jinja2-compatible)           |
 | Markdown         | [comrak](https://github.com/kivikakk/comrak) (CommonMark + GFM)     |
 | Math             | [MathJax](https://www.mathjax.org/) 3.2.2                            |
 | Graph            | [D3.js](https://d3js.org/) 7.9                                       |
-| Datenbank        | MySQL 8 via [sqlx](https://github.com/launchbadge/sqlx)              |
-| Passwort-Hashing | [Argon2](https://docs.rs/argon2/)                                    |
-| Containerisierung| Docker + Docker Compose                                              |
-| Upload-Script    | Python 3 (nur Standardbibliothek)                                    |
+| Database         | MySQL 8 via [sqlx](https://github.com/launchbadge/sqlx)              |
+| Password hashing | [Argon2](https://docs.rs/argon2/)                                    |
+| Containerization | Docker + Docker Compose                                              |

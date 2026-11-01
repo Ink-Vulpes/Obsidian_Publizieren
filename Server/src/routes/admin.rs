@@ -98,6 +98,8 @@ pub struct UpdatePermForm {
     pub can_manage_users: Option<String>,
     pub can_manage_lists: Option<String>,
     pub folder_restriction: Option<String>,
+    pub sees_published: Option<String>,
+    pub sees_all: Option<String>,
     pub folders: Option<String>,
 }
 
@@ -116,15 +118,14 @@ pub async fn update_permissions(
         }
     }
 
-    let existing = crate::db::get_user_permissions(&state.db, user_id).await.unwrap_or_default();
     let perms = crate::db::UserPermissions {
         user_id,
         can_upload: form.can_upload.as_deref() == Some("on"),
         can_manage_users: form.can_manage_users.as_deref() == Some("on"),
         can_manage_lists: form.can_manage_lists.as_deref() == Some("on"),
         folder_restriction: form.folder_restriction.as_deref() == Some("on"),
-        sees_published: existing.sees_published,
-        sees_all: existing.sees_all,
+        sees_published: form.sees_published.as_deref() == Some("on"),
+        sees_all: form.sees_all.as_deref() == Some("on"),
     };
 
     if let Err(e) = crate::db::upsert_permissions(&state.db, &perms).await {
