@@ -48,7 +48,6 @@ services:
       - "${WEB_PORT:-127.0.0.1:3000}:3000"
     volumes:
       - vault-data:/vault
-      - ./static:/app/static:ro
       - ./config.yml:/app/config.yml:ro
     environment:
       RUST_LOG: "${RUST_LOG:-info}"
