@@ -164,7 +164,10 @@ async fn render_markdown(
     let vault = state.vault.read().await;
     let frontmatter: Vec<serde_json::Value> = vault.notes.get(&slug)
         .map(|n| n.frontmatter.iter()
-            .filter(|(k, _)| !k.to_lowercase().starts_with("banner"))
+            .filter(|(k, _)| {
+                let lk = k.to_lowercase();
+                lk != "banner" && !lk.starts_with("banner_")
+            })
             .map(|(k, v)| serde_json::json!({"key": k, "value": v}))
             .collect())
         .unwrap_or_default();
