@@ -41,7 +41,7 @@ export default class ObsidianPublisher extends Plugin {
 		// ── Views ────────────────────────────────────────────────────────────────
 		this.registerView(SYNC_LOG_VIEW_TYPE, leaf => new SyncLogView(leaf, this.logStore));
 		this.registerView(CHANGES_VIEW_TYPE, leaf => {
-			const view = new ChangesView(leaf, this.syncEngine, this.api);
+			const view = new ChangesView(leaf, this.syncEngine, this.api, () => this.settings.syncObsidianSettings);
 			view.setOnSyncDone(() => this.onSyncCompleted(null));
 			return view;
 		});

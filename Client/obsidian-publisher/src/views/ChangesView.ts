@@ -21,11 +21,13 @@ export class ChangesView extends ItemView {
 	private serverOnlyActions = new Map<string, 'pull' | 'deleteRemote'>();
 	private selected = new Set<string>();
 	private onSyncDone: (() => void) | null = null;
+	private getSyncSettings: () => boolean;
 
-	constructor(leaf: WorkspaceLeaf, engine: SyncEngine, api: ApiClient) {
+	constructor(leaf: WorkspaceLeaf, engine: SyncEngine, api: ApiClient, getSyncSettings: () => boolean = () => false) {
 		super(leaf);
 		this.engine = engine;
 		this.api = api;
+		this.getSyncSettings = getSyncSettings;
 	}
 
 	getViewType() { return CHANGES_VIEW_TYPE; }
@@ -40,7 +42,7 @@ export class ChangesView extends ItemView {
 		this.state = { kind: 'loading' };
 		this.render();
 		try {
-			const diff = await this.engine.computeDiff();
+			const diff = await this.engine.computeDiff(this.getSyncSettings());
 			// Keep existing conflict resolutions, add defaults for new conflicts
 			const newRes = new Map<string, ConflictResolution>();
 			for (const p of diff.conflicts) newRes.set(p, this.resolutions.get(p) ?? 'push');
