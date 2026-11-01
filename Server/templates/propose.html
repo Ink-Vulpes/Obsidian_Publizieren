@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="propose-page">
+  <div class="propose-header">
+    <h1 style="margin:0;font-size:1.2rem">Änderungsantrag: <a href="/note/{{ slug }}" style="color:var(--interactive-accent)">{{ note_title }}</a></h1>
+    <p style="font-size:.85rem;color:var(--text-muted);margin:.4rem 0 0">Bearbeite den Inhalt links und sieh die Vorschau rechts. Klicke unten auf "Antrag einreichen".</p>
+  </div>
+
+  <details class="syntax-ref">
+    <summary class="syntax-ref-toggle">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Syntax-Referenz
+    </summary>
+    <div class="syntax-ref-body">
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Frontmatter</div>
+        <div class="syntax-row"><code>---<br>Publizieren: true<br>Gruppen:<br>&nbsp;&nbsp;- gruppenname<br>tags: [tag1, tag2]<br>---</code><span>YAML-Block am Anfang der Datei</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Überschriften</div>
+        <div class="syntax-row"><code># H1</code><span>Überschrift 1</span></div>
+        <div class="syntax-row"><code>## H2</code><span>Überschrift 2</span></div>
+        <div class="syntax-row"><code>### H3</code><span>Überschrift 3</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Formatierung</div>
+        <div class="syntax-row"><code>**fett**</code><span><strong>fett</strong></span></div>
+        <div class="syntax-row"><code>*kursiv*</code><span><em>kursiv</em></span></div>
+        <div class="syntax-row"><code>~~durchgestrichen~~</code><span><s>durchgestrichen</s></span></div>
+        <div class="syntax-row"><code>==markiert==</code><span>markiert (Obsidian)</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Links</div>
+        <div class="syntax-row"><code>[[Notiz]]</code><span>Interner Wikilink</span></div>
+        <div class="syntax-row"><code>[[Notiz|Alias]]</code><span>Wikilink mit Anzeigetext</span></div>
+        <div class="syntax-row"><code>![[Datei.png]]</code><span>Eingebettetes Bild / Datei</span></div>
+        <div class="syntax-row"><code>[Text](https://...)</code><span>Externer Link</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Listen</div>
+        <div class="syntax-row"><code>- Punkt<br>- Punkt<br>&nbsp;&nbsp;- Unterpunkt</code><span>Ungeordnet (auch * oder +)</span></div>
+        <div class="syntax-row"><code>1. Erster<br>2. Zweiter</code><span>Geordnet</span></div>
+        <div class="syntax-row"><code>- [ ] Aufgabe<br>- [x] Erledigt</code><span>Aufgabenliste</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Code</div>
+        <div class="syntax-row"><code>`inline`</code><span>Inline-Code</span></div>
+        <div class="syntax-row"><code>```rust<br>fn main() {}<br>```</code><span>Codeblock mit Sprache</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Mathematik</div>
+        <div class="syntax-row"><code>\( x^2 \)</code><span>Inline-Formel (LaTeX)</span></div>
+        <div class="syntax-row"><code>\[ E = mc^2 \]</code><span>Gleichung (eigene Zeile)</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Tabellen</div>
+        <div class="syntax-row"><code>| A | B |<br>|---|---|<br>| 1 | 2 |</code><span>Einfache Tabelle</span></div>
+      </div>
+
+      <div class="syntax-section">
+        <div class="syntax-section-title">Sonstiges</div>
+        <div class="syntax-row"><code>&gt; Zitat</code><span>Blockzitat</span></div>
+        <div class="syntax-row"><code>&gt; [!info]<br>&gt; Hinweis</code><span>Callout (Obsidian)</span></div>
+        <div class="syntax-row"><code>#tag</code><span>Tag im Text</span></div>
+        <div class="syntax-row"><code>---</code><span>Horizontale Linie</span></div>
+      </div>
+
+    </div>
+  </details>
+
+  <div class="propose-split">
+    <div class="propose-editor-pane">
+      <div class="propose-pane-label">Editor (Markdown)</div>
+      <textarea id="propose-editor" class="propose-textarea">{{ raw_content }}</textarea>
+    </div>
+    <div class="propose-preview-pane">
+      <div class="propose-pane-label">Vorschau</div>
+      <div id="propose-preview" class="markdown-body propose-preview-body"></div>
+    </div>
+  </div>
+
+  <div class="propose-footer">
+    <div style="flex:1;max-width:400px">
+      <input type="text" id="propose-message" placeholder="Optionale Nachricht an den Admin…" style="width:100%;box-sizing:border-box;padding:.4rem .7rem;background:var(--background-modifier-form-field);border:1px solid var(--background-modifier-border);border-radius:5px;color:var(--text-normal);font-size:.85rem">
+    </div>
+    <button id="propose-submit" class="propose-submit-btn" onclick="submitProposal()">Antrag einreichen</button>
+    <span id="propose-status" style="font-size:.85rem"></span>
+  </div>
+</div>
+
+<style>
+.propose-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 4rem);
+  padding: 1rem 1.5rem;
+  box-sizing: border-box;
+  max-width: none;
+}
+.propose-header {
+  margin-bottom: .8rem;
+}
+.propose-split {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+}
+.propose-editor-pane,
+.propose-preview-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 0;
+}
+.propose-pane-label {
+  padding: .35rem .8rem;
+  font-size: .75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+.propose-textarea {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: .8rem 1rem;
+  font-family: var(--font-monospace, monospace);
+  font-size: .85rem;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  line-height: 1.55;
+  overflow-y: auto;
+}
+.propose-preview-body {
+  flex: 1;
+  padding: .8rem 1rem;
+  overflow-y: auto;
+  font-size: .9rem;
+}
+.propose-footer {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  margin-top: .8rem;
+  flex-wrap: wrap;
+}
+.propose-submit-btn {
+  padding: .45rem 1.2rem;
+  background: var(--interactive-accent);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: .9rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.propose-submit-btn:hover {
+  opacity: .88;
+}
+.propose-submit-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+/* ── Syntax Reference ─────────────────────────────────────────────────── */
+.syntax-ref {
+  flex-shrink: 0;
+  margin-bottom: .6rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.syntax-ref-toggle {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .38rem .8rem;
+  font-size: .78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.syntax-ref-toggle::-webkit-details-marker { display: none; }
+.syntax-ref[open] .syntax-ref-toggle {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.syntax-ref-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem 1.2rem;
+  padding: .7rem 1rem;
+  background: var(--background-primary);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.syntax-section {
+  min-width: 160px;
+}
+.syntax-section-title {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+  margin-bottom: .25rem;
+}
+.syntax-row {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  font-size: .78rem;
+  margin-bottom: .2rem;
+  line-height: 1.5;
+}
+.syntax-row code {
+  font-family: var(--font-monospace, monospace);
+  font-size: .76rem;
+  background: var(--background-modifier-form-field, rgba(0,0,0,.06));
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  padding: 0 .3rem;
+  white-space: pre;
+  color: var(--text-normal);
+  flex-shrink: 0;
+}
+.syntax-row span {
+  color: var(--text-muted);
+  font-size: .75rem;
+}
+@media (max-width: 700px) {
+  .propose-split { flex-direction: column; }
+  .syntax-ref-body { max-height: none; }
+}
+</style>
+
+<script>
+const SLUG = {{ slug | json_encode() | safe }};
+
+function renderPreview() {
+  const editor = document.getElementById('propose-editor');
+  const preview = document.getElementById('propose-preview');
+  if (!editor || !preview || typeof marked === 'undefined') return;
+  preview.innerHTML = marked.parse(editor.value);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const editor = document.getElementById('propose-editor');
+  if (editor) {
+    editor.addEventListener('input', renderPreview);
+    // Initial render after marked loads
+    setTimeout(renderPreview, 100);
+  }
+});
+
+// Re-render once marked is loaded (it's deferred)
+window.addEventListener('load', renderPreview);
+
+async function submitProposal() {
+  const editor = document.getElementById('propose-editor');
+  const messageEl = document.getElementById('propose-message');
+  const submitBtn = document.getElementById('propose-submit');
+  const status = document.getElementById('propose-status');
+
+  const content = editor?.value ?? '';
+  if (!content.trim()) {
+    status.textContent = 'Inhalt darf nicht leer sein.';
+    status.style.color = 'var(--color-red, #e06060)';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  status.textContent = 'Wird eingereicht…';
+  status.style.color = 'var(--text-muted)';
+
+  try {
+    const r = await fetch('/api/proposals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        note_slug: SLUG,
+        proposed_content: content,
+        message: messageEl?.value?.trim() || null,
+      })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.textContent = '✓ Antrag eingereicht!';
+      status.style.color = 'var(--color-green, #6ac47e)';
+      submitBtn.disabled = true;
+      setTimeout(() => { window.location.href = '/note/' + SLUG; }, 1500);
+    } else {
+      status.textContent = '✗ ' + (d.error || 'Fehler');
+      status.style.color = 'var(--color-red, #e06060)';
+      submitBtn.disabled = false;
+    }
+  } catch(e) {
+    status.textContent = '✗ ' + e;
+    status.style.color = 'var(--color-red, #e06060)';
+    submitBtn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

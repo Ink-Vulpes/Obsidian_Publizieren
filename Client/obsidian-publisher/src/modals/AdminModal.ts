@@ -1,7 +1,7 @@
 import { App, Modal, Notice } from 'obsidian';
 import type { ApiClient, Group, UserWithPermissions } from '../api';
 
-type Tab = 'users' | 'invite' | 'lists' | 'groups' | 'settings';
+type Tab = 'users' | 'invite' | 'lists' | 'groups' | 'settings' | 'proposals';
 
 export class AdminModal extends Modal {
 	private api: ApiClient;
@@ -30,6 +30,7 @@ export class AdminModal extends Modal {
 			{ id: 'users', label: 'Benutzer' },
 			{ id: 'invite', label: 'Einladung' },
 			{ id: 'lists', label: 'White-/Blacklist' },
+			{ id: 'proposals', label: 'Anträge' },
 			{ id: 'groups', label: 'Gruppen' },
 			{ id: 'settings', label: 'Einstellungen' },
 		];
@@ -50,8 +51,9 @@ export class AdminModal extends Modal {
 			case 'users':    this.renderUsers(body); break;
 			case 'invite':   this.renderInvite(body); break;
 			case 'lists':    this.renderLists(body); break;
-			case 'groups':   this.renderGroups(body); break;
-			case 'settings': this.renderSettings(body); break;
+			case 'groups':    this.renderGroups(body); break;
+			case 'settings':  this.renderSettings(body); break;
+			case 'proposals': this.renderProposals(body); break;
 		}
 	}
 
@@ -91,6 +93,7 @@ export class AdminModal extends Modal {
 			{ key: 'folder_restriction', label: 'Ordner-Einschränkung' },
 			{ key: 'sees_published', label: 'Sieht alle veröffentlichten Notizen (ignoriert Gruppen)' },
 			{ key: 'sees_all', label: 'Sieht alles inkl. unveröffentlichte Notizen' },
+			{ key: 'can_propose', label: 'Darf Änderungsanträge stellen' },
 		];
 
 		if (!user.is_admin) {
@@ -471,6 +474,72 @@ export class AdminModal extends Modal {
 				addBtn.setText('+ Add'); addBtn.disabled = false;
 			}
 		};
+	}
+
+	// ── Proposals tab ──────────────────────────────────────────────────────────
+
+	private renderProposals(parent: HTMLElement) {
+		const loading = parent.createEl('p', { text: 'Lade Anträge …', cls: 'publisher-progress' });
+
+		this.api.adminListProposals().then(proposals => {
+			loading.remove();
+			if (proposals.length === 0) {
+				parent.createEl('p', { text: 'Keine offenen Anträge.', cls: 'publisher-progress' });
+				return;
+			}
+			for (const p of proposals) {
+				const card = parent.createEl('div', { cls: 'publisher-user-card' });
+
+				const header = card.createEl('div', { cls: 'publisher-user-header' });
+				header.createEl('strong', { text: p.note_slug });
+				header.createEl('span', { text: `von ${p.proposer_username}`, cls: 'publisher-badge' });
+
+				if (p.message) {
+					card.createEl('p', { text: `💬 ${p.message}` }).style.cssText = 'font-size:12px;color:var(--text-muted);margin:4px 0;';
+				}
+
+				const preview = card.createEl('details');
+				preview.createEl('summary', { text: 'Inhalt anzeigen' }).style.cssText = 'font-size:12px;color:var(--text-muted);cursor:pointer;';
+				const pre = preview.createEl('pre');
+				pre.style.cssText = 'font-size:11px;overflow:auto;max-height:200px;white-space:pre-wrap;background:var(--background-secondary);border-radius:4px;padding:6px 8px;margin-top:4px;';
+				pre.setText(p.proposed_content);
+
+				const btnRow = card.createEl('div');
+				btnRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
+
+				const approveBtn = btnRow.createEl('button', { text: 'Annehmen', cls: 'mod-cta' });
+				approveBtn.style.cssText = 'font-size:12px;padding:3px 10px;';
+				approveBtn.onclick = async () => {
+					if (!confirm('Antrag annehmen? Die Note wird überschrieben.')) return;
+					approveBtn.setText('…'); approveBtn.disabled = true;
+					try {
+						await this.api.adminApproveProposal(p.id);
+						new Notice('Antrag angenommen');
+						card.remove();
+					} catch (e) {
+						new Notice('Fehler: ' + (e as Error).message);
+						approveBtn.setText('Annehmen'); approveBtn.disabled = false;
+					}
+				};
+
+				const rejectBtn = btnRow.createEl('button', { text: 'Ablehnen', cls: 'publisher-danger-btn' });
+				rejectBtn.style.cssText = 'font-size:12px;padding:3px 10px;';
+				rejectBtn.onclick = async () => {
+					rejectBtn.setText('…'); rejectBtn.disabled = true;
+					try {
+						await this.api.adminRejectProposal(p.id);
+						new Notice('Antrag abgelehnt');
+						card.remove();
+					} catch (e) {
+						new Notice('Fehler: ' + (e as Error).message);
+						rejectBtn.setText('Ablehnen'); rejectBtn.disabled = false;
+					}
+				};
+			}
+		}).catch(e => {
+			loading.setText('Fehler: ' + (e as Error).message);
+			loading.style.color = 'var(--color-red)';
+		});
 	}
 
 	onClose() {

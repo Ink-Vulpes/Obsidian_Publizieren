@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "obsidian-publisher",
-      "runtimeExecutable": "D:\\Dev\\Obsidian_Publizieren\\target\\release\\obsidian-publisher.exe",
+      "runtimeExecutable": "D:\\Dev\\Obsidian_Publizieren\\Server\\target\\release\\obsidian-publisher.exe",
       "runtimeArgs": [],
       "port": 3000,
       "env": {

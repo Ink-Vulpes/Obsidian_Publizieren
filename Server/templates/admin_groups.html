@@ -1,0 +1,111 @@
+{% extends "admin_layout.html" %}
+
+{% block page_title %}Gruppen{% endblock %}
+
+{% block content %}
+<h2>Nutzergruppen</h2>
+<p>
+  Gruppen erlauben es, Notizen auf bestimmte Nutzer zu beschränken.<br>
+  Trage <code>group: gruppenname</code> in die Metadaten einer Notiz ein.
+</p>
+
+<div class="card" style="margin-top:1rem">
+  {% if groups | length == 0 %}
+  <div class="empty-state">Keine Gruppen vorhanden.</div>
+  {% else %}
+    {% for g in groups %}
+    <div class="card-row">
+      <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.6rem">
+        <strong>{{ g.name }}</strong>
+        <span style="font-size:.78rem;color:#a0a0a8">ID {{ g.id }}</span>
+        <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deleteGroup({{ g.id }}, '{{ g.name }}')">Gruppe löschen</button>
+      </div>
+      <div>
+        <p style="margin-bottom:.3rem;font-size:.78rem">Mitglieder:</p>
+        <div id="members-{{ g.id }}" style="display:flex;flex-wrap:wrap;gap:.2rem;margin-bottom:.5rem">
+          {% if g.members | length == 0 %}
+            <em style="font-size:.82rem;color:#a0a0a8">Keine Mitglieder</em>
+          {% else %}
+            {% for m in g.members %}
+            <span class="tag">
+              {{ m.username }}
+              <button class="tag-remove" title="Entfernen" onclick="removeGroupMember({{ g.id }}, {{ m.id }}, this)">×</button>
+            </span>
+            {% endfor %}
+          {% endif %}
+        </div>
+        <div style="display:flex;gap:.4rem;max-width:380px">
+          <select id="add-member-select-{{ g.id }}" class="input-field" style="flex:1;font-size:.82rem">
+            <option value="">— Nutzer hinzufügen —</option>
+            {% for u in users %}
+            {% if not u.is_admin %}
+            <option value="{{ u.id }}">{{ u.username }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="addGroupMember({{ g.id }})">+ Add</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  {% endif %}
+</div>
+
+<div style="display:flex;gap:.5rem;max-width:380px">
+  <input type="text" id="new-group-name" placeholder="Neue Gruppe (z. B. premium)" class="input-field" style="flex:1">
+  <button class="btn btn-primary" onclick="createGroup()">+ Gruppe erstellen</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function createGroup() {
+  const input = document.getElementById('new-group-name');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    const r = await fetch('/api/admin/groups', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function deleteGroup(id, name) {
+  if (!confirm(`Gruppe "${name}" wirklich löschen?`)) return;
+  try {
+    const r = await fetch('/api/admin/groups/' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function addGroupMember(groupId) {
+  const sel = document.getElementById('add-member-select-' + groupId);
+  const userId = parseInt(sel.value);
+  if (!userId) return;
+  try {
+    const r = await fetch(`/api/admin/groups/${groupId}/members`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId })
+    });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function removeGroupMember(groupId, userId, btn) {
+  try {
+    const r = await fetch(`/api/admin/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+</script>
+{% endblock %}

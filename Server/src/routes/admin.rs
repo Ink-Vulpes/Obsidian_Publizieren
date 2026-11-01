@@ -3,65 +3,177 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::{auth::CurrentUser, AppState};
 
-// ── Admin panel page ──────────────────────────────────────────────────────────
+#[derive(serde::Serialize)]
+struct ProposalView {
+    id: u32,
+    note_slug: String,
+    proposer_username: String,
+    proposed_content: String,
+    message: Option<String>,
+    created_at: DateTime<Utc>,
+    current_content: Option<String>,
+}
+
+// ── Admin panel page (redirect to /admin/users) ───────────────────────────────
 
 pub async fn admin_page(
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.can_access_admin {
+        return (StatusCode::FORBIDDEN, "Zugriff verweigert").into_response();
+    }
+    Redirect::to("/admin/users").into_response()
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+fn base_ctx(state: &AppState, current_user: &CurrentUser, tab: &str) -> tera::Context {
+    let mut ctx = tera::Context::new();
+    ctx.insert("site_title", &state.config.server.site_title);
+    ctx.insert("current_user", current_user);
+    ctx.insert("active_tab", tab);
+    ctx
+}
+
+fn render(state: &AppState, template: &str, ctx: tera::Context) -> Response {
+    Html(
+        state.tera.render(template, &ctx)
+            .unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")),
+    )
+    .into_response()
+}
+
+// ── /admin/users ──────────────────────────────────────────────────────────────
+
+pub async fn admin_users_page(
     State(state): State<AppState>,
     Extension(current_user): Extension<CurrentUser>,
 ) -> Response {
     if !current_user.can_access_admin {
         return (StatusCode::FORBIDDEN, "Zugriff verweigert").into_response();
     }
+    if !current_user.can_manage_users && !current_user.is_admin {
+        return Redirect::to("/admin").into_response();
+    }
 
-    let users = crate::db::list_users_with_permissions(&state.db)
-        .await
-        .unwrap_or_default();
-    let whitelist = crate::db::get_whitelist(&state.db).await.unwrap_or_default();
-    let blacklist = crate::db::get_blacklist(&state.db).await.unwrap_or_default();
+    let users = crate::db::list_users_with_permissions(&state.db).await.unwrap_or_default();
     let groups = crate::db::list_groups_with_members(&state.db).await.unwrap_or_default();
 
     let vault = state.vault.read().await;
-    let all_slugs: Vec<String> = {
-        let mut slugs: Vec<_> = vault.notes.keys().cloned().collect();
-        slugs.sort();
-        slugs
-    };
-    let all_folders: Vec<String> = {
-        let mut folders: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for slug in vault.notes.keys() {
-            let parts: Vec<_> = slug.split('/').collect();
-            for i in 1..parts.len() {
-                folders.insert(parts[..i].join("/"));
-            }
-        }
-        let mut v: Vec<_> = folders.into_iter().collect();
-        v.sort();
-        v
-    };
+    let mut all_slugs: Vec<String> = vault.notes.keys().cloned().collect();
+    all_slugs.sort();
     drop(vault);
 
-    let mut ctx = tera::Context::new();
-    ctx.insert("site_title", &state.config.server.site_title);
-    ctx.insert("page_title", "Administration");
-    ctx.insert("current_user", &current_user);
+    let mut ctx = base_ctx(&state, &current_user, "users");
     ctx.insert("users", &users);
-    ctx.insert("whitelist", &whitelist);
-    ctx.insert("blacklist", &blacklist);
     ctx.insert("groups", &groups);
     ctx.insert("all_slugs", &all_slugs);
-    ctx.insert("all_folders", &all_folders);
+    render(&state, "admin_users.html", ctx)
+}
 
-    Html(
-        state
-            .tera
-            .render("admin.html", &ctx)
-            .unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")),
-    )
-    .into_response()
+// ── /admin/lists ──────────────────────────────────────────────────────────────
+
+pub async fn admin_lists_page(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.can_access_admin {
+        return (StatusCode::FORBIDDEN, "Zugriff verweigert").into_response();
+    }
+    if !current_user.can_manage_lists && !current_user.is_admin {
+        return Redirect::to("/admin").into_response();
+    }
+
+    let whitelist = crate::db::get_whitelist(&state.db).await.unwrap_or_default();
+    let blacklist = crate::db::get_blacklist(&state.db).await.unwrap_or_default();
+
+    let vault = state.vault.read().await;
+    let mut all_slugs: Vec<String> = vault.notes.keys().cloned().collect();
+    all_slugs.sort();
+    drop(vault);
+
+    let mut ctx = base_ctx(&state, &current_user, "lists");
+    ctx.insert("whitelist", &whitelist);
+    ctx.insert("blacklist", &blacklist);
+    ctx.insert("all_slugs", &all_slugs);
+    render(&state, "admin_lists.html", ctx)
+}
+
+// ── /admin/groups ─────────────────────────────────────────────────────────────
+
+pub async fn admin_groups_page(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, "Zugriff verweigert").into_response();
+    }
+
+    let groups = crate::db::list_groups_with_members(&state.db).await.unwrap_or_default();
+    let users = crate::db::list_users_with_permissions(&state.db).await.unwrap_or_default();
+
+    let mut ctx = base_ctx(&state, &current_user, "groups");
+    ctx.insert("groups", &groups);
+    ctx.insert("users", &users);
+    render(&state, "admin_groups.html", ctx)
+}
+
+// ── /admin/proposals ──────────────────────────────────────────────────────────
+
+pub async fn admin_proposals_page(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, "Zugriff verweigert").into_response();
+    }
+
+    let raw_proposals = crate::db::list_proposals(&state.db).await.unwrap_or_default();
+    let vault = state.vault.read().await;
+    let proposals: Vec<ProposalView> = raw_proposals
+        .into_iter()
+        .map(|p| {
+            let current_content = vault.notes.get(&p.note_slug).and_then(|entry| {
+                let path = std::path::Path::new(&state.config.server.vault_path).join(&entry.path);
+                std::fs::read_to_string(path).ok()
+            });
+            ProposalView {
+                id: p.id,
+                note_slug: p.note_slug,
+                proposer_username: p.proposer_username,
+                proposed_content: p.proposed_content,
+                message: p.message,
+                created_at: p.created_at,
+                current_content,
+            }
+        })
+        .collect();
+    let proposals_count = proposals.len();
+    drop(vault);
+
+    let mut ctx = base_ctx(&state, &current_user, "proposals");
+    ctx.insert("proposals", &proposals);
+    ctx.insert("proposals_count", &proposals_count);
+    render(&state, "admin_proposals.html", ctx)
+}
+
+// ── /admin/settings ───────────────────────────────────────────────────────────
+
+pub async fn admin_settings_page(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, "Zugriff verweigert").into_response();
+    }
+
+    let ctx = base_ctx(&state, &current_user, "settings");
+    render(&state, "admin_settings.html", ctx)
 }
 
 // ── Invite creation ───────────────────────────────────────────────────────────
@@ -100,6 +212,7 @@ pub struct UpdatePermForm {
     pub folder_restriction: Option<String>,
     pub sees_published: Option<String>,
     pub sees_all: Option<String>,
+    pub can_propose: Option<String>,
     pub folders: Option<String>,
 }
 
@@ -126,6 +239,7 @@ pub async fn update_permissions(
         folder_restriction: form.folder_restriction.as_deref() == Some("on"),
         sees_published: form.sees_published.as_deref() == Some("on"),
         sees_all: form.sees_all.as_deref() == Some("on"),
+        can_propose: form.can_propose.as_deref() == Some("on"),
     };
 
     if let Err(e) = crate::db::upsert_permissions(&state.db, &perms).await {
@@ -149,7 +263,7 @@ pub async fn update_permissions(
         let _ = crate::db::set_folder_access(&state.db, user_id, &[]).await;
     }
 
-    Redirect::to("/admin").into_response()
+    Redirect::to("/admin/users").into_response()
 }
 
 // ── User deletion ─────────────────────────────────────────────────────────────
@@ -198,7 +312,7 @@ pub async fn add_whitelist(
     if let Err(r) = require_lists(&current_user) { return r; }
     let _ = crate::db::add_to_whitelist(&state.db, &form.slug, current_user.id).await;
     refresh_lists(&state).await;
-    Redirect::to("/admin#lists").into_response()
+    Redirect::to("/admin/lists").into_response()
 }
 
 pub async fn remove_whitelist(
@@ -209,7 +323,7 @@ pub async fn remove_whitelist(
     if let Err(r) = require_lists(&current_user) { return r; }
     let _ = crate::db::remove_from_whitelist(&state.db, &form.slug).await;
     refresh_lists(&state).await;
-    Redirect::to("/admin#lists").into_response()
+    Redirect::to("/admin/lists").into_response()
 }
 
 pub async fn add_blacklist(
@@ -231,7 +345,7 @@ pub async fn remove_blacklist(
     if let Err(r) = require_lists(&current_user) { return r; }
     let _ = crate::db::remove_from_blacklist(&state.db, &form.slug).await;
     refresh_lists(&state).await;
-    Redirect::to("/admin#lists").into_response()
+    Redirect::to("/admin/lists").into_response()
 }
 
 // ── JSON API for Obsidian plugin ──────────────────────────────────────────────
@@ -259,6 +373,8 @@ pub struct UpdatePermJson {
     pub sees_published: bool,
     #[serde(default)]
     pub sees_all: bool,
+    #[serde(default)]
+    pub can_propose: bool,
     pub folders: Option<Vec<String>>,
 }
 
@@ -284,6 +400,7 @@ pub async fn api_update_permissions(
         folder_restriction: body.folder_restriction,
         sees_published: body.sees_published,
         sees_all: body.sees_all,
+        can_propose: body.can_propose,
     };
     if let Err(e) = crate::db::upsert_permissions(&state.db, &perms).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
@@ -291,6 +408,76 @@ pub async fn api_update_permissions(
     let folders = body.folders.unwrap_or_default();
     let _ = crate::db::set_folder_access(&state.db, user_id, &folders).await;
     Json(serde_json::json!({"ok": true})).into_response()
+}
+
+// ── Proposal API ──────────────────────────────────────────────────────────────
+
+pub async fn api_list_proposals(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Nur Admins"}))).into_response();
+    }
+    match crate::db::list_proposals(&state.db).await {
+        Ok(proposals) => Json(proposals).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+pub async fn api_approve_proposal(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(proposal_id): Path<u32>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Nur Admins"}))).into_response();
+    }
+
+    let proposal = match crate::db::get_proposal(&state.db, proposal_id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"Nicht gefunden"}))).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    };
+
+    // Write content to vault file
+    let vault = state.vault.read().await;
+    let entry = match vault.notes.get(&proposal.note_slug) {
+        Some(e) => e.clone(),
+        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"Note not found in vault"}))).into_response(),
+    };
+    drop(vault);
+
+    let file_path = std::path::Path::new(&state.config.server.vault_path).join(&entry.path);
+    if let Err(e) = std::fs::write(&file_path, &proposal.proposed_content) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+    }
+
+    // Reload vault
+    let pf = state.publish_field.read().unwrap().clone();
+    let gf = state.group_field.read().unwrap().clone();
+    if let Ok(new_vault) = crate::vault::Vault::load(&state.config.server.vault_path, &pf, &gf) {
+        *state.vault.write().await = new_vault;
+    }
+
+    // Delete the proposal
+    let _ = crate::db::delete_proposal(&state.db, proposal_id).await;
+
+    Json(serde_json::json!({"ok": true})).into_response()
+}
+
+pub async fn api_reject_proposal(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(proposal_id): Path<u32>,
+) -> Response {
+    if !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Nur Admins"}))).into_response();
+    }
+    match crate::db::delete_proposal(&state.db, proposal_id).await {
+        Ok(_) => Json(serde_json::json!({"ok": true})).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
 }
 
 pub async fn api_get_lists(

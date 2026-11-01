@@ -42,6 +42,7 @@
     details > summary::before { content: '▶ '; font-size: .75em; }
     details[open] > summary::before { content: '▼ '; }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/7.0.0/diff.min.js"></script>
 </head>
 <body>
 <div class="admin-wrap">
@@ -85,8 +86,9 @@
               {% if u.permissions.can_manage_lists %}Listen {% endif %}
               {% if u.permissions.folder_restriction %}Ordner {% endif %}
               {% if u.permissions.sees_published %}Published {% endif %}
-              {% if u.permissions.sees_all %}Alles{% endif %}
-              {% if not u.permissions.can_upload and not u.permissions.can_manage_users and not u.permissions.can_manage_lists and not u.permissions.folder_restriction and not u.permissions.sees_published and not u.permissions.sees_all %}
+              {% if u.permissions.sees_all %}Alles {% endif %}
+              {% if u.permissions.can_propose %}Vorschlag {% endif %}
+              {% if not u.permissions.can_upload and not u.permissions.can_manage_users and not u.permissions.can_manage_lists and not u.permissions.folder_restriction and not u.permissions.sees_published and not u.permissions.sees_all and not u.permissions.can_propose %}
                 <span style="font-style:italic">keine</span>
               {% endif %}
             {% endif %}
@@ -103,6 +105,7 @@
                   <div class="perm-row"><input type="checkbox" name="folder_restriction" id="cfr_{{ u.id }}" {% if u.permissions.folder_restriction %}checked{% endif %}><label for="cfr_{{ u.id }}">Ordner-Einschränkung aktiv</label></div>
                   <div class="perm-row"><input type="checkbox" name="sees_published" id="csp_{{ u.id }}" {% if u.permissions.sees_published %}checked{% endif %}><label for="csp_{{ u.id }}">Sieht alle veröffentlichten Notizen (ignoriert Gruppen)</label></div>
                   <div class="perm-row"><input type="checkbox" name="sees_all" id="csa_{{ u.id }}" {% if u.permissions.sees_all %}checked{% endif %}><label for="csa_{{ u.id }}">Sieht alles inkl. unveröffentlichte Notizen</label></div>
+                  <div class="perm-row"><input type="checkbox" name="can_propose" id="cp_{{ u.id }}" {% if u.permissions.can_propose %}checked{% endif %}><label for="cp_{{ u.id }}">Darf Änderungsanträge stellen</label></div>
                   <div style="margin-top:.6rem">
                     <label style="font-size:.8rem;color:#a0a0a8;display:block;margin-bottom:.3rem">Erlaubte Ordner (je eine Zeile, leer = alle):</label>
                     <textarea class="folders-input" name="folders">{{ u.allowed_folders | join(sep="\n") }}</textarea>
@@ -265,6 +268,37 @@
   <div class="add-form" style="max-width:400px;margin-bottom:2rem">
     <input type="text" id="new-group-name" placeholder="Neue Gruppe (z.B. premium)" style="flex:1;padding:.4rem .7rem;border:1px solid #3d3d3f;border-radius:5px;background:#1c1c1e;color:#ebebec;font-size:.85rem;outline:none">
     <button class="btn btn-primary" onclick="createGroup()">+ Gruppe erstellen</button>
+  </div>
+  {% endif %}
+
+  <!-- ── Proposals ── -->
+  {% if current_user.is_admin %}
+  <h2 id="proposals">Änderungsanträge</h2>
+  <div class="card">
+    {% if proposals | length == 0 %}
+    <div style="padding:1rem;color:#a0a0a8;font-style:italic">Keine offenen Anträge.</div>
+    {% else %}
+    {% for p in proposals %}
+    <div id="proposal-{{ p.id }}" style="padding:.8rem 1rem;border-bottom:1px solid #3d3d3f">
+      <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin-bottom:.5rem">
+        <a href="/note/{{ p.note_slug }}" style="font-weight:600;font-size:.95rem;color:#7b97aa">{{ p.note_slug }}</a>
+        <span style="font-size:.78rem;color:#a0a0a8">von {{ p.proposer_username }}</span>
+        <span style="font-size:.78rem;color:#a0a0a8">{{ p.created_at }}</span>
+        <div style="margin-left:auto;display:flex;gap:.5rem">
+          <button class="btn btn-primary" onclick="approveProposal({{ p.id }})">Annehmen</button>
+          <button class="btn btn-danger" onclick="rejectProposal({{ p.id }})">Ablehnen</button>
+        </div>
+      </div>
+      {% if p.message %}<p style="font-size:.82rem;color:#a0a0a8;margin:.2rem 0 .4rem">💬 {{ p.message }}</p>{% endif %}
+      <details class="proposal-diff-details" data-id="{{ p.id }}"
+        data-current="{{ p.current_content | default(value='') | escape }}"
+        data-proposed="{{ p.proposed_content | escape }}">
+        <summary style="font-size:.82rem;color:#a0a0a8;cursor:pointer">Änderungen anzeigen</summary>
+        <div class="proposal-diff" id="diff-{{ p.id }}" style="margin:.5rem 0 0;font-family:monospace;font-size:.78rem;border:1px solid #3d3d3f;border-radius:5px;overflow:auto;max-height:400px;"></div>
+      </details>
+    </div>
+    {% endfor %}
+    {% endif %}
   </div>
   {% endif %}
 
@@ -435,6 +469,68 @@ async function addUserToGroup(userId, btn) {
     });
     const d = await r.json();
     if (d.ok) location.reload();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+// ── Diff rendering ────────────────────────────────────────────────────────────
+function renderDiff(id, currentRaw, proposedRaw) {
+  const container = document.getElementById('diff-' + id);
+  if (!container || !window.Diff) return;
+  const parts = Diff.diffLines(currentRaw, proposedRaw);
+  container.innerHTML = '';
+  parts.forEach(part => {
+    const lines = part.value.replace(/\n$/, '').split('\n');
+    lines.forEach(line => {
+      const el = document.createElement('div');
+      el.style.cssText = 'padding:0 .6rem;white-space:pre-wrap;word-break:break-all;line-height:1.5;';
+      if (part.added) {
+        el.style.background = 'rgba(80,180,100,.18)';
+        el.style.color = '#7ec898';
+        el.textContent = '+ ' + line;
+      } else if (part.removed) {
+        el.style.background = 'rgba(220,80,80,.15)';
+        el.style.color = '#e06060';
+        el.textContent = '- ' + line;
+      } else {
+        el.style.color = '#a0a0a8';
+        el.textContent = '  ' + line;
+      }
+      container.appendChild(el);
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.proposal-diff-details').forEach(details => {
+    details.addEventListener('toggle', () => {
+      if (!details.open) return;
+      const id = details.dataset.id;
+      const current = details.dataset.current || '';
+      const proposed = details.dataset.proposed || '';
+      // Unescape HTML entities
+      const decode = s => { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; };
+      renderDiff(id, decode(current), decode(proposed));
+    });
+  });
+});
+
+// ── Proposals ─────────────────────────────────────────────────────────────────
+async function approveProposal(id) {
+  if (!confirm('Änderungsantrag annehmen? Die Note wird überschrieben.')) return;
+  try {
+    const r = await fetch('/api/admin/proposals/' + id + '/approve', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) { document.getElementById('proposal-' + id)?.remove(); }
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function rejectProposal(id) {
+  try {
+    const r = await fetch('/api/admin/proposals/' + id + '/reject', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) { document.getElementById('proposal-' + id)?.remove(); }
     else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
   } catch(e) { alert('Fehler: ' + e); }
 }

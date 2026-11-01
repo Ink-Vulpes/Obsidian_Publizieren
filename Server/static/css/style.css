@@ -13,6 +13,7 @@
   --tertiary:    #84a98c;
   --highlight:   rgba(143, 159, 169, 0.15);
   --text-hl:     rgba(255, 242, 54, 0.53);
+  --interactive-accent: #284b63;
   --sidebar-w:   260px;
   --right-w:     230px;
   --font-body:   "Source Sans 3", system-ui, -apple-system, sans-serif;
@@ -31,6 +32,7 @@
   --secondary: #7b97aa;
   --tertiary:  #84a98c;
   --highlight: rgba(143, 159, 169, 0.15);
+  --interactive-accent: #7b97aa;
 }
 
 /* ── Reset ───────────────────────────────────── */
@@ -286,6 +288,25 @@ a:hover { color: var(--tertiary); text-decoration: underline; }
 }
 
 .note-header { margin-bottom: 1.75rem; }
+.sidebar-propose-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  color: var(--interactive-accent);
+  border: 1px solid var(--interactive-accent);
+  border-radius: var(--radius);
+  text-decoration: none;
+  margin-bottom: 0.4rem;
+  transition: background .15s, color .15s;
+}
+.sidebar-propose-btn:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--interactive-accent);
+  text-decoration: none;
+}
 .note-title {
   font-family: var(--font-head);
   font-size: 2rem;

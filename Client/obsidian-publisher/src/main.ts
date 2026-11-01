@@ -11,6 +11,7 @@ import { ChangesView, CHANGES_VIEW_TYPE } from './views/ChangesView';
 import { AdminModal } from './modals/AdminModal';
 import { ExternalMetaModal } from './modals/ExternalMetaModal';
 import { LogModal } from './modals/LogModal';
+import { ProposalsModal } from './modals/ProposalsModal';
 
 interface PluginData {
 	settings: PublisherSettings;
@@ -57,6 +58,7 @@ export default class ObsidianPublisher extends Plugin {
 		this.addRibbonIcon('git-compare', 'Ausstehende Änderungen', () => this.openChangesPanel());
 		this.addRibbonIcon('history', 'Publisher Log', () => this.openLogPanel());
 		this.addRibbonIcon('settings', 'Admin-Panel', () => new AdminModal(this.app, this.api).open());
+		this.addRibbonIcon('file-diff', 'Änderungsanträge', () => new ProposalsModal(this.app, this.api).open());
 
 		// ── Commands ─────────────────────────────────────────────────────────────
 		this.addCommand({ id: 'open-changes', name: 'Ausstehende Änderungen anzeigen', callback: () => this.openChangesPanel() });
@@ -68,6 +70,7 @@ export default class ObsidianPublisher extends Plugin {
 		this.addCommand({ id: 'toggle-publish', name: 'Veröffentlichung umschalten', callback: () => this.togglePublishField() });
 		this.addCommand({ id: 'reset-and-upload', name: 'Server zurücksetzen und Vault hochladen', callback: () => this.confirmResetAndUpload() });
 		this.addCommand({ id: 'edit-external-meta', name: 'Externe Notiz-Metadaten bearbeiten', callback: () => new ExternalMetaModal(this.app, this.api).open() });
+		this.addCommand({ id: 'open-proposals', name: 'Änderungsanträge anzeigen', callback: () => new ProposalsModal(this.app, this.api).open() });
 
 		// ── Settings tab ─────────────────────────────────────────────────────────
 		this.addSettingTab(new PublisherSettingTab(this.app, this));

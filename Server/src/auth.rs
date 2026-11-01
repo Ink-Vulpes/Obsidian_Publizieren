@@ -26,6 +26,8 @@ pub struct Claims {
     pub sees_published: bool,
     #[serde(default)]
     pub sees_all: bool,
+    #[serde(default)]
+    pub can_propose: bool,
     pub exp: usize,
     pub iat: usize,
 }
@@ -45,6 +47,7 @@ pub struct CurrentUser {
     pub groups: Vec<String>,
     pub sees_published: bool,
     pub sees_all: bool,
+    pub can_propose: bool,
 }
 
 impl CurrentUser {
@@ -76,6 +79,7 @@ impl From<Claims> for CurrentUser {
             groups: c.groups,
             sees_published: c.sees_published,
             sees_all: c.sees_all,
+            can_propose: c.can_propose,
         }
     }
 }
@@ -103,6 +107,7 @@ pub fn create_jwt(
     groups: Vec<String>,
     sees_published: bool,
     sees_all: bool,
+    can_propose: bool,
     duration_hours: i64,
     secret: &str,
 ) -> anyhow::Result<String> {
@@ -121,6 +126,7 @@ pub fn create_jwt(
         groups,
         sees_published,
         sees_all,
+        can_propose,
         exp,
         iat: now,
     };
