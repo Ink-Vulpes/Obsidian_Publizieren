@@ -143,6 +143,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/note-meta", get(routes::admin::api_get_all_note_meta))
         .route("/api/admin/note-meta/*slug", post(routes::admin::api_set_note_meta))
         .route("/admin", get(routes::admin::admin_page))
+        .route("/admin/users", get(routes::admin::admin_users_page))
+        .route("/admin/lists", get(routes::admin::admin_lists_page))
+        .route("/admin/groups", get(routes::admin::admin_groups_page))
+        .route("/admin/proposals", get(routes::admin::admin_proposals_page))
+        .route("/admin/settings", get(routes::admin::admin_settings_page))
         .route("/admin/invite", post(routes::admin::create_invite))
         .route("/admin/users/:id/permissions", post(routes::admin::update_permissions))
         .route("/admin/users/:id", delete(routes::admin::delete_user))
@@ -150,6 +155,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/whitelist/remove", post(routes::admin::remove_whitelist))
         .route("/admin/blacklist/add", post(routes::admin::add_blacklist))
         .route("/admin/blacklist/remove", post(routes::admin::remove_blacklist))
+        .route("/propose/*slug", get(routes::proposals::propose_page))
+        .route("/api/proposals", post(routes::proposals::submit_proposal))
+        .route("/api/admin/proposals", get(routes::admin::api_list_proposals))
+        .route("/api/admin/proposals/:id/approve", post(routes::admin::api_approve_proposal))
+        .route("/api/admin/proposals/:id/reject", post(routes::admin::api_reject_proposal))
         .nest_service("/vault-assets", ServeDir::new(config.server.vault_path.clone()))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(
@@ -177,7 +187,14 @@ fn build_templates() -> anyhow::Result<tera::Tera> {
         ("index.html",      include_str!("../templates/index.html")),
         ("login.html",      include_str!("../templates/login.html")),
         ("register.html",   include_str!("../templates/register.html")),
-        ("admin.html",      include_str!("../templates/admin.html")),
+        ("admin.html",          include_str!("../templates/admin.html")),
+        ("admin_layout.html",   include_str!("../templates/admin_layout.html")),
+        ("admin_users.html",    include_str!("../templates/admin_users.html")),
+        ("admin_lists.html",    include_str!("../templates/admin_lists.html")),
+        ("admin_groups.html",   include_str!("../templates/admin_groups.html")),
+        ("admin_proposals.html",include_str!("../templates/admin_proposals.html")),
+        ("admin_settings.html", include_str!("../templates/admin_settings.html")),
+        ("propose.html",        include_str!("../templates/propose.html")),
         ("bases.html",      include_str!("../templates/bases.html")),
     ])?;
     Ok(tera)

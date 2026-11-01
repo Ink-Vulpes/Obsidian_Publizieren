@@ -1,0 +1,71 @@
+{% extends "admin_layout.html" %}
+
+{% block page_title %}Einstellungen{% endblock %}
+
+{% block content %}
+<h2>Einstellungen</h2>
+
+<div class="card card-pad" style="max-width:540px;margin-top:1rem">
+  <div style="display:grid;gap:1.2rem">
+
+    <div>
+      <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.35rem">Publish-Feld</label>
+      <input id="s-publish-field" type="text" placeholder="z. B. published" class="input-field" style="width:100%">
+      <p style="margin-top:.25rem">Frontmatter-Key, der für „veröffentlicht" geprüft wird. Leer = kein Filter.</p>
+    </div>
+
+    <div>
+      <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.35rem">Gruppen-Feld</label>
+      <input id="s-group-field" type="text" placeholder="z. B. group" class="input-field" style="width:100%">
+      <p style="margin-top:.25rem">Frontmatter-Key für Gruppen-Einschränkungen.</p>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:.8rem">
+      <button class="btn btn-primary" onclick="saveSettings()">Einstellungen speichern</button>
+      <span id="settings-status" style="font-size:.82rem"></span>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadSettings() {
+  try {
+    const r = await fetch('/api/admin/settings');
+    if (!r.ok) return;
+    const d = await r.json();
+    const f = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+    f('s-publish-field', d.publish_field);
+    f('s-group-field', d.group_field);
+  } catch(e) { console.warn('Settings load failed', e); }
+}
+
+async function saveSettings() {
+  const g = id => (document.getElementById(id)?.value ?? '').trim();
+  const body = { publish_field: g('s-publish-field'), group_field: g('s-group-field') || null };
+  const status = document.getElementById('settings-status');
+  try {
+    const r = await fetch('/api/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.textContent = '✓ Gespeichert';
+      status.style.color = '#6ac47e';
+      setTimeout(() => { status.textContent = ''; }, 3000);
+    } else {
+      status.textContent = '✗ ' + (d.error || 'Fehler');
+      status.style.color = '#e06060';
+    }
+  } catch(e) {
+    status.textContent = '✗ ' + e;
+    status.style.color = '#e06060';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadSettings);
+</script>
+{% endblock %}

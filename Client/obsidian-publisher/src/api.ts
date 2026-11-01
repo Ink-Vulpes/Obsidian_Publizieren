@@ -30,6 +30,7 @@ export interface UserWithPermissions {
 		folder_restriction: boolean;
 		sees_published: boolean;
 		sees_all: boolean;
+		can_propose: boolean;
 	};
 	allowed_folders: string[];
 }
@@ -205,6 +206,7 @@ export class ApiClient {
 			folder_restriction: boolean;
 			sees_published: boolean;
 			sees_all: boolean;
+			can_propose: boolean;
 			folders?: string[];
 		},
 	): Promise<void> {
@@ -350,6 +352,43 @@ export class ApiClient {
 			body: JSON.stringify({ groups }),
 		});
 		if (!resp.ok) throw new Error('Metadaten konnten nicht gespeichert werden');
+	}
+
+	// ── Proposals API ─────────────────────────────────────────────────────────
+
+	async adminListProposals(): Promise<{
+		id: number;
+		note_slug: string;
+		proposed_by: number;
+		proposer_username: string;
+		proposed_content: string;
+		message: string | null;
+		created_at: string;
+	}[]> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/api/admin/proposals'), {
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Anträge nicht verfügbar');
+		return resp.json();
+	}
+
+	async adminApproveProposal(id: number): Promise<void> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url(`/api/admin/proposals/${id}/approve`), {
+			method: 'POST',
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Antrag konnte nicht angenommen werden');
+	}
+
+	async adminRejectProposal(id: number): Promise<void> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url(`/api/admin/proposals/${id}/reject`), {
+			method: 'POST',
+			headers: { 'Authorization': `Bearer ${token}` },
+		});
+		if (!resp.ok) throw new Error('Antrag konnte nicht abgelehnt werden');
 	}
 
 	async adminGetNoteList(): Promise<{ slug: string; title: string; kind: string }[]> {

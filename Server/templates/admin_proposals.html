@@ -1,0 +1,112 @@
+{% extends "admin_layout.html" %}
+
+{% block page_title %}Anträge{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/7.0.0/diff.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="section-header">
+  <h2>Änderungsanträge</h2>
+  {% if proposals | length > 0 %}
+  <span style="font-size:.85rem;color:#a0a0a8">{{ proposals | length }} offen</span>
+  {% endif %}
+</div>
+
+<div class="card">
+  {% if proposals | length == 0 %}
+  <div class="empty-state">Keine offenen Anträge.</div>
+  {% else %}
+    {% for p in proposals %}
+    <div id="proposal-{{ p.id }}" class="card-row">
+      <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin-bottom:.4rem">
+        <a href="/note/{{ p.note_slug }}" style="font-weight:600;color:#7b97aa;font-size:.95rem">{{ p.note_slug }}</a>
+        <span class="badge badge-user">von {{ p.proposer_username }}</span>
+        <span style="font-size:.78rem;color:#a0a0a8">{{ p.created_at }}</span>
+        <div style="margin-left:auto;display:flex;gap:.5rem">
+          <button class="btn btn-primary btn-sm" onclick="approveProposal({{ p.id }})">Annehmen</button>
+          <button class="btn btn-danger btn-sm" onclick="rejectProposal({{ p.id }})">Ablehnen</button>
+        </div>
+      </div>
+      {% if p.message %}
+      <p style="margin:.2rem 0 .4rem;font-size:.82rem">💬 {{ p.message }}</p>
+      {% endif %}
+      <details class="proposal-diff-details" data-id="{{ p.id }}"
+        data-current="{{ p.current_content | default(value='') | escape }}"
+        data-proposed="{{ p.proposed_content | escape }}">
+        <summary style="font-size:.82rem;color:#a0a0a8;display:inline-flex;align-items:center;gap:.3rem;margin-top:.3rem">
+          <span class="diff-toggle-arrow">▶</span> Änderungen anzeigen
+        </summary>
+        <div class="proposal-diff" id="diff-{{ p.id }}" style="margin:.5rem 0 0;font-family:monospace;font-size:.78rem;border:1px solid #3d3d3f;border-radius:6px;overflow:auto;max-height:420px;"></div>
+      </details>
+    </div>
+    {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function renderDiff(id, currentRaw, proposedRaw) {
+  const container = document.getElementById('diff-' + id);
+  if (!container || !window.Diff) return;
+  container.innerHTML = '';
+  const parts = Diff.diffLines(currentRaw, proposedRaw);
+  parts.forEach(part => {
+    const lines = part.value.replace(/\n$/, '').split('\n');
+    lines.forEach(line => {
+      const el = document.createElement('div');
+      el.style.cssText = 'padding:0 .6rem;white-space:pre-wrap;word-break:break-all;line-height:1.6;';
+      if (part.added) {
+        el.style.background = 'rgba(80,180,100,.18)';
+        el.style.color = '#7ec898';
+        el.textContent = '+ ' + line;
+      } else if (part.removed) {
+        el.style.background = 'rgba(220,80,80,.15)';
+        el.style.color = '#e06060';
+        el.textContent = '- ' + line;
+      } else {
+        el.style.color = '#a0a0a8';
+        el.textContent = '  ' + line;
+      }
+      container.appendChild(el);
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const decode = s => { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; };
+  document.querySelectorAll('.proposal-diff-details').forEach(details => {
+    const arrow = details.querySelector('.diff-toggle-arrow');
+    details.addEventListener('toggle', () => {
+      if (arrow) arrow.textContent = details.open ? '▼' : '▶';
+      if (!details.open) return;
+      const id = details.dataset.id;
+      const current = decode(details.dataset.current || '');
+      const proposed = decode(details.dataset.proposed || '');
+      renderDiff(id, current, proposed);
+    });
+  });
+});
+
+async function approveProposal(id) {
+  if (!confirm('Änderungsantrag annehmen? Die Notiz wird überschrieben.')) return;
+  try {
+    const r = await fetch('/api/admin/proposals/' + id + '/approve', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) document.getElementById('proposal-' + id)?.remove();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+
+async function rejectProposal(id) {
+  try {
+    const r = await fetch('/api/admin/proposals/' + id + '/reject', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) document.getElementById('proposal-' + id)?.remove();
+    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
+  } catch(e) { alert('Fehler: ' + e); }
+}
+</script>
+{% endblock %}

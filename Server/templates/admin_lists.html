@@ -1,0 +1,73 @@
+{% extends "admin_layout.html" %}
+
+{% block page_title %}Listen{% endblock %}
+
+{% block content %}
+<h2>Whitelist / Blacklist</h2>
+<p>
+  Whitelist: wenn nicht leer, werden nur diese Notizen angezeigt.<br>
+  Blacklist: diese Notizen werden immer versteckt.
+</p>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1rem">
+
+  <!-- Whitelist -->
+  <div>
+    <h3>Whitelist</h3>
+    <div class="card card-pad">
+      {% if whitelist | length == 0 %}
+        <em style="color:#a0a0a8;font-size:.88rem">Leer — alle Notizen sichtbar</em>
+      {% else %}
+        {% for slug in whitelist %}
+        <span class="tag">
+          {{ slug }}
+          {% if current_user.can_manage_lists or current_user.is_admin %}
+          <form method="post" action="/admin/whitelist/remove" style="display:inline;margin:0">
+            <input type="hidden" name="slug" value="{{ slug }}">
+            <button type="submit" class="tag-remove" title="Entfernen">×</button>
+          </form>
+          {% endif %}
+        </span>
+        {% endfor %}
+      {% endif %}
+      {% if current_user.can_manage_lists or current_user.is_admin %}
+      <form method="post" action="/admin/whitelist/add" class="add-row" style="margin-top:.8rem">
+        <input type="text" name="slug" placeholder="notiz/pfad/slug" class="input-field" list="slug-list" required>
+        <button type="submit" class="btn btn-primary btn-sm">+ Add</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Blacklist -->
+  <div>
+    <h3>Blacklist</h3>
+    <div class="card card-pad">
+      {% if blacklist | length == 0 %}
+        <em style="color:#a0a0a8;font-size:.88rem">Leer</em>
+      {% else %}
+        {% for slug in blacklist %}
+        <span class="tag">
+          {{ slug }}
+          {% if current_user.can_manage_lists or current_user.is_admin %}
+          <form method="post" action="/admin/blacklist/remove" style="display:inline;margin:0">
+            <input type="hidden" name="slug" value="{{ slug }}">
+            <button type="submit" class="tag-remove" title="Entfernen">×</button>
+          </form>
+          {% endif %}
+        </span>
+        {% endfor %}
+      {% endif %}
+      {% if current_user.can_manage_lists or current_user.is_admin %}
+      <form method="post" action="/admin/blacklist/add" class="add-row" style="margin-top:.8rem">
+        <input type="text" name="slug" placeholder="notiz/pfad/slug" class="input-field" list="slug-list" required>
+        <button type="submit" class="btn btn-danger btn-sm">+ Add</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<datalist id="slug-list">{% for s in all_slugs %}<option value="{{ s }}">{% endfor %}</datalist>
+{% endblock %}

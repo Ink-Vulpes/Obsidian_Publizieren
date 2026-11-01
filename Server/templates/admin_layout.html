@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block page_title %}Administration{% endblock %} — {{ site_title }}</title>
+  {% block extra_head %}{% endblock %}
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1c1c1e; color: #ebebec; font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; }
+    .admin-shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* ── Top bar ── */
+    .admin-topbar {
+      display: flex; align-items: center; gap: 1rem; padding: .65rem 1.5rem;
+      background: #141415; border-bottom: 1px solid #2d2d2f;
+      position: sticky; top: 0; z-index: 20;
+    }
+    .admin-topbar-title { font-weight: 800; font-size: 1rem; letter-spacing: -.01em; color: #ebebec; }
+    .admin-topbar .back-link { color: #7b97aa; font-size: .82rem; text-decoration: none; margin-left: auto; }
+    .admin-topbar .back-link:hover { text-decoration: underline; }
+
+    /* ── Nav ── */
+    .admin-nav {
+      display: flex; padding: 0 1.5rem;
+      background: #1c1c1e; border-bottom: 1px solid #3d3d3f;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .admin-nav::-webkit-scrollbar { display: none; }
+    .admin-nav-item {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .65rem 1.1rem; font-size: .875rem; font-weight: 500;
+      color: #a0a0a8; text-decoration: none;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      transition: color .12s, border-color .12s;
+      white-space: nowrap;
+    }
+    .admin-nav-item:hover { color: #ebebec; }
+    .admin-nav-item.active { color: #ebebec; border-bottom-color: #7b97aa; font-weight: 600; }
+    .admin-nav-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+      font-size: .68rem; font-weight: 700; background: #c04040; color: #fff;
+    }
+
+    /* ── Content ── */
+    .admin-main { flex: 1; max-width: 1000px; width: 100%; margin: 0 auto; padding: 1.8rem 1.5rem 4rem; }
+
+    /* ── Shared components ── */
+    h2 { font-size: 1.1rem; font-weight: 700; margin: 0 0 1rem; }
+    h3 { font-size: .95rem; font-weight: 600; margin: 0 0 .5rem; }
+    p { font-size: .88rem; color: #a0a0a8; margin-bottom: .6rem; }
+    code { background: #1c1c1e; padding: .1rem .3rem; border-radius: 3px; font-size: .85em; border: 1px solid #3d3d3f; }
+
+    .card { background: #2d2d2f; border: 1px solid #3d3d3f; border-radius: 10px; overflow: hidden; margin-bottom: 1.5rem; }
+    .card-pad { padding: 1rem 1.2rem; }
+    .card-row { padding: .8rem 1rem; border-bottom: 1px solid #3d3d3f; }
+    .card-row:last-child { border-bottom: none; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    th, td { padding: .6rem .9rem; text-align: left; border-bottom: 1px solid #3d3d3f; }
+    th { font-size: .73rem; text-transform: uppercase; letter-spacing: .06em; color: #a0a0a8; font-weight: 600; background: #252527; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.025); }
+
+    .badge { display: inline-block; padding: .15rem .5rem; border-radius: 4px; font-size: .75rem; font-weight: 600; }
+    .badge-admin { background: rgba(100,140,255,.18); color: #7090ff; }
+    .badge-user { background: rgba(120,120,120,.15); color: #a0a0a8; }
+
+    .btn { padding: .35rem .85rem; border-radius: 5px; border: none; cursor: pointer; font-size: .82rem; font-weight: 600; transition: opacity .15s; line-height: 1.4; }
+    .btn:hover { opacity: .8; }
+    .btn-sm { padding: .25rem .6rem; font-size: .78rem; }
+    .btn-primary { background: #7b97aa; color: #fff; }
+    .btn-danger { background: rgba(220,60,60,.2); color: #e06060; border: 1px solid rgba(220,60,60,.3); }
+    .btn-secondary { background: rgba(130,130,130,.15); color: #ebebec; border: 1px solid #3d3d3f; }
+
+    .input-field {
+      padding: .4rem .65rem; background: #1c1c1e; border: 1px solid #3d3d3f;
+      border-radius: 5px; color: #ebebec; font-size: .85rem; outline: none;
+      transition: border-color .12s;
+    }
+    .input-field:focus { border-color: #7b97aa; }
+
+    .add-row { display: flex; gap: .5rem; margin-top: .6rem; align-items: center; }
+    .add-row .input-field { flex: 1; }
+
+    .perm-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .4rem; font-size: .875rem; }
+    .perm-row input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+    .perm-row label { cursor: pointer; }
+
+    .tag { display: inline-flex; align-items: center; gap: .35rem; background: #1c1c1e; border: 1px solid #3d3d3f; border-radius: 4px; padding: .18rem .55rem; font-size: .8rem; margin: .15rem; font-family: monospace; color: #ebebec; }
+    .tag-remove { background: none; border: none; color: #a0a0a8; cursor: pointer; font-size: .95rem; line-height: 1; padding: 0; }
+    .tag-remove:hover { color: #e06060; }
+
+    .folder-textarea { width: 100%; font-family: monospace; font-size: .8rem; background: #1c1c1e; border: 1px solid #3d3d3f; border-radius: 5px; padding: .4rem .6rem; color: #ebebec; resize: vertical; min-height: 60px; box-sizing: border-box; outline: none; }
+    .folder-textarea:focus { border-color: #7b97aa; }
+
+    .invite-url { font-family: monospace; font-size: .82rem; background: #1c1c1e; border: 1px solid #3d3d3f; border-radius: 5px; padding: .4rem .6rem; word-break: break-all; margin-top: .5rem; display: none; color: #ebebec; }
+
+    details summary { cursor: pointer; user-select: none; list-style: none; }
+    details summary::-webkit-details-marker { display: none; }
+
+    .empty-state { padding: 1.5rem; color: #a0a0a8; font-style: italic; font-size: .88rem; text-align: center; }
+
+    .section-header { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .section-header h2 { margin: 0; }
+  </style>
+</head>
+<body>
+<div class="admin-shell">
+
+  <div class="admin-topbar">
+    <span class="admin-topbar-title">Administration</span>
+    <a href="/" class="back-link">← Zurück zur Seite</a>
+  </div>
+
+  <nav class="admin-nav">
+    {% if current_user.can_manage_users or current_user.is_admin %}
+    <a href="/admin/users" class="admin-nav-item {% if active_tab == 'users' %}active{% endif %}">Benutzer</a>
+    {% endif %}
+    {% if current_user.can_manage_lists or current_user.is_admin %}
+    <a href="/admin/lists" class="admin-nav-item {% if active_tab == 'lists' %}active{% endif %}">Listen</a>
+    {% endif %}
+    {% if current_user.is_admin %}
+    <a href="/admin/groups" class="admin-nav-item {% if active_tab == 'groups' %}active{% endif %}">Gruppen</a>
+    <a href="/admin/proposals" class="admin-nav-item {% if active_tab == 'proposals' %}active{% endif %}">
+      Anträge{% if proposals_count %} <span class="admin-nav-badge">{{ proposals_count }}</span>{% endif %}
+    </a>
+    <a href="/admin/settings" class="admin-nav-item {% if active_tab == 'settings' %}active{% endif %}">Einstellungen</a>
+    {% endif %}
+  </nav>
+
+  <main class="admin-main">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -21,6 +21,7 @@ pub struct UserPermissions {
     pub folder_restriction: bool,
     pub sees_published: bool,
     pub sees_all: bool,
+    pub can_propose: bool,
 }
 
 impl Default for UserPermissions {
@@ -33,8 +34,20 @@ impl Default for UserPermissions {
             folder_restriction: false,
             sees_published: false,
             sees_all: false,
+            can_propose: false,
         }
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Proposal {
+    pub id: u32,
+    pub note_slug: String,
+    pub proposed_by: u32,
+    pub proposer_username: String,
+    pub proposed_content: String,
+    pub message: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -84,6 +97,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
         include_str!("../migrations/004_drop_sessions.sql"),
         include_str!("../migrations/005_groups.sql"),
         include_str!("../migrations/006_user_visibility.sql"),
+        include_str!("../migrations/007_proposals.sql"),
     ] {
         for stmt in sql.split(";\n") {
             let s = stmt.trim();
@@ -184,7 +198,8 @@ pub async fn get_user_permissions(pool: &MySqlPool, user_id: u32) -> anyhow::Res
     let perms = sqlx::query_as::<_, UserPermissions>(
         "SELECT user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction,
                 COALESCE(sees_published, FALSE) AS sees_published,
-                COALESCE(sees_all, FALSE) AS sees_all
+                COALESCE(sees_all, FALSE) AS sees_all,
+                COALESCE(can_propose, FALSE) AS can_propose
          FROM user_permissions WHERE user_id = ?",
     )
     .bind(user_id)
@@ -196,15 +211,17 @@ pub async fn get_user_permissions(pool: &MySqlPool, user_id: u32) -> anyhow::Res
 pub async fn upsert_permissions(pool: &MySqlPool, perms: &UserPermissions) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO user_permissions
-           (user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction, sees_published, sees_all)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+           (user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction,
+            sees_published, sees_all, can_propose)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            can_upload = VALUES(can_upload),
            can_manage_users = VALUES(can_manage_users),
            can_manage_lists = VALUES(can_manage_lists),
            folder_restriction = VALUES(folder_restriction),
            sees_published = VALUES(sees_published),
-           sees_all = VALUES(sees_all)",
+           sees_all = VALUES(sees_all),
+           can_propose = VALUES(can_propose)",
     )
     .bind(perms.user_id)
     .bind(perms.can_upload)
@@ -213,8 +230,75 @@ pub async fn upsert_permissions(pool: &MySqlPool, perms: &UserPermissions) -> an
     .bind(perms.folder_restriction)
     .bind(perms.sees_published)
     .bind(perms.sees_all)
+    .bind(perms.can_propose)
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+// ── Proposals ─────────────────────────────────────────────────────────────────
+
+pub async fn create_proposal(
+    pool: &MySqlPool,
+    note_slug: &str,
+    proposed_by: u32,
+    proposer_username: &str,
+    proposed_content: &str,
+    message: Option<&str>,
+) -> anyhow::Result<u32> {
+    let res = sqlx::query(
+        "INSERT INTO proposals (note_slug, proposed_by, proposer_username, proposed_content, message)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(note_slug)
+    .bind(proposed_by)
+    .bind(proposer_username)
+    .bind(proposed_content)
+    .bind(message)
+    .execute(pool)
+    .await?;
+    Ok(res.last_insert_id() as u32)
+}
+
+pub async fn list_proposals(pool: &MySqlPool) -> anyhow::Result<Vec<Proposal>> {
+    // Also purge proposals older than 7 days while we're here
+    sqlx::query("DELETE FROM proposals WHERE created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)")
+        .execute(pool)
+        .await?;
+    let rows: Vec<(u32, String, u32, String, String, Option<String>, DateTime<Utc>)> =
+        sqlx::query_as(
+            "SELECT id, note_slug, proposed_by, proposer_username, proposed_content, message, created_at
+             FROM proposals ORDER BY created_at DESC",
+        )
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, note_slug, proposed_by, proposer_username, proposed_content, message, created_at)| {
+            Proposal { id, note_slug, proposed_by, proposer_username, proposed_content, message, created_at }
+        })
+        .collect())
+}
+
+pub async fn get_proposal(pool: &MySqlPool, id: u32) -> anyhow::Result<Option<Proposal>> {
+    let row: Option<(u32, String, u32, String, String, Option<String>, DateTime<Utc>)> =
+        sqlx::query_as(
+            "SELECT id, note_slug, proposed_by, proposer_username, proposed_content, message, created_at
+             FROM proposals WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|(id, note_slug, proposed_by, proposer_username, proposed_content, message, created_at)| {
+        Proposal { id, note_slug, proposed_by, proposer_username, proposed_content, message, created_at }
+    }))
+}
+
+pub async fn delete_proposal(pool: &MySqlPool, id: u32) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM proposals WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
