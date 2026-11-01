@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% if banner_url %}
+<div class="note-banner"{% if banner_y %} style="--banner-y: {{ banner_y }}"{% endif %}>
+  <img src="{{ banner_url }}" alt="" class="note-banner-img" loading="lazy">
+</div>
+{% endif %}
 <article class="note-article">
   <header class="note-header">
     <h1 class="note-title">{{ page_title }}</h1>

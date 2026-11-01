@@ -164,9 +164,29 @@ async fn render_markdown(
     let vault = state.vault.read().await;
     let frontmatter: Vec<serde_json::Value> = vault.notes.get(&slug)
         .map(|n| n.frontmatter.iter()
+            .filter(|(k, _)| !k.to_lowercase().starts_with("banner"))
             .map(|(k, v)| serde_json::json!({"key": k, "value": v}))
             .collect())
         .unwrap_or_default();
+
+    // Extract banner image URL and vertical position from frontmatter
+    let banner_raw: Option<String> = vault.notes.get(&slug)
+        .and_then(|n| n.frontmatter.iter()
+            .find(|(k, _)| k.to_lowercase() == "banner")
+            .map(|(_, v)| v.clone()));
+    let banner_y: Option<String> = vault.notes.get(&slug)
+        .and_then(|n| n.frontmatter.iter()
+            .find(|(k, _)| k.to_lowercase() == "banner_y")
+            .map(|(_, v)| v.clone()));
+    let banner_url: Option<String> = banner_raw.and_then(|val| {
+        let raw = if val.starts_with("[[") && val.ends_with("]]") {
+            val[2..val.len() - 2].to_string()
+        } else {
+            val
+        };
+        let name = raw.split('|').next().unwrap_or(&raw).trim().to_string();
+        vault.resolve_asset(&name)
+    });
     drop(vault);
 
     let ext_meta = crate::external_meta::read(&state.config.server.vault_path);
@@ -189,6 +209,8 @@ async fn render_markdown(
     ctx.insert("frontmatter", &frontmatter);
     ctx.insert("ext_groups", &ext_groups);
     ctx.insert("can_edit_meta", &can_edit_meta);
+    ctx.insert("banner_url", &banner_url);
+    ctx.insert("banner_y", &banner_y);
 
     Html(state.tera.render("note.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }

@@ -261,6 +261,24 @@ a:hover { color: var(--tertiary); text-decoration: underline; }
   overflow-x: hidden;
 }
 
+/* ── Note banner ─────────────────────────────── */
+.note-banner {
+  --banner-height: 200px;
+  --banner-y: 50%;
+  width: 100%;
+  height: var(--banner-height);
+  overflow: hidden;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+}
+.note-banner-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center var(--banner-y);
+  display: block;
+}
+
 /* ── Note article ────────────────────────────── */
 .note-article, .canvas-article, .excalidraw-article {
   max-width: 750px;
