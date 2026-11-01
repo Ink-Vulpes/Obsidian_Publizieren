@@ -124,7 +124,7 @@ export class PublisherSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Obsidian-Einstellungen synchronisieren')
-			.setDesc('Synchronisiert .obsidian/ (Plugins, Themes, Snippets) — workspace.json wird ausgeschlossen')
+			.setDesc('Synchronisiert .obsidian/ (Plugins, Themes, Snippets, Hotkeys) — workspace.json, graph.json und cache werden ausgeschlossen')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.syncObsidianSettings)
 				.onChange(async value => {

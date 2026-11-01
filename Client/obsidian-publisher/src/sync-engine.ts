@@ -21,15 +21,20 @@ export interface SyncAction {
 	path: string;
 }
 
-// These .obsidian/ files are device-specific and excluded from sync.
+// These .obsidian/ files are device-specific or ephemeral and excluded from sync.
+const SETTINGS_EXCLUDE_LIST = new Set([
+	'.obsidian/workspace.json',       // open tabs / panel layout — per device
+	'.obsidian/workspace-mobile.json', // mobile layout — per device
+	'.obsidian/graph.json',            // graph view state (zoom/pan) — per device
+]);
+
 const SETTINGS_EXCLUDE_PREFIXES = [
-	'.obsidian/workspace.json',
-	'.obsidian/workspace-mobile.json',
-	'.obsidian/cache/',
+	'.obsidian/cache',   // internal cache directory or cache.json
 ];
 
 function isSettingsExcluded(path: string): boolean {
-	return SETTINGS_EXCLUDE_PREFIXES.some(ex => path === ex || path.startsWith(ex));
+	if (SETTINGS_EXCLUDE_LIST.has(path)) return true;
+	return SETTINGS_EXCLUDE_PREFIXES.some(ex => path === ex || path.startsWith(ex + '/') || path.startsWith(ex + '.'));
 }
 
 async function sha256(buffer: ArrayBuffer): Promise<string> {
