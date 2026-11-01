@@ -146,7 +146,7 @@ export default class ObsidianPublisher extends Plugin {
 		await this.savePluginData();
 	}
 
-	private async savePluginData() {
+	async savePluginData() {
 		await this.saveData({
 			settings: this.settings,
 			syncState: this.syncEngine?.getSyncState() ?? this.syncState,
@@ -179,6 +179,7 @@ export default class ObsidianPublisher extends Plugin {
 			const { errors, diff } = await this.syncEngine.syncAll(
 				new Map(),
 				(_msg, done, total) => { this.setStatus(`${done}/${total}`); },
+				this.settings.syncObsidianSettings,
 			);
 			await this.onSyncCompleted({
 				timestamp: Date.now(),

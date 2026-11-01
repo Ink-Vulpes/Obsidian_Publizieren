@@ -21,6 +21,17 @@ export interface SyncAction {
 	path: string;
 }
 
+// These .obsidian/ files are device-specific and excluded from sync.
+const SETTINGS_EXCLUDE_PREFIXES = [
+	'.obsidian/workspace.json',
+	'.obsidian/workspace-mobile.json',
+	'.obsidian/cache/',
+];
+
+function isSettingsExcluded(path: string): boolean {
+	return SETTINGS_EXCLUDE_PREFIXES.some(ex => path === ex || path.startsWith(ex));
+}
+
 async function sha256(buffer: ArrayBuffer): Promise<string> {
 	const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
 	return Array.from(new Uint8Array(hashBuffer))
@@ -50,17 +61,124 @@ export class SyncEngine {
 		this.lastSyncState = {};
 	}
 
-	async computeDiff(): Promise<SyncDiff> {
-		const [serverManifest, localFiles] = await Promise.all([
+	// ── Local file helpers ────────────────────────────────────────────────────
+
+	async readLocalFile(path: string): Promise<ArrayBuffer> {
+		if (path.startsWith('.obsidian/')) {
+			return this.app.vault.adapter.readBinary(path);
+		}
+		const file = this.app.vault.getFileByPath(path);
+		if (!file) throw new Error('Datei nicht gefunden');
+		return this.app.vault.readBinary(file);
+	}
+
+	async writeLocalFile(path: string, data: ArrayBuffer): Promise<void> {
+		if (path.startsWith('.obsidian/')) {
+			const parts = path.split('/');
+			if (parts.length > 1) {
+				const dir = parts.slice(0, -1).join('/');
+				await this.ensureAdapterDir(dir);
+			}
+			await this.app.vault.adapter.writeBinary(path, data);
+			return;
+		}
+		const parts = path.split('/');
+		if (parts.length > 1) {
+			const dir = parts.slice(0, -1).join('/');
+			if (!this.app.vault.getAbstractFileByPath(dir)) {
+				await this.app.vault.createFolder(dir);
+			}
+		}
+		const existing = this.app.vault.getFileByPath(path);
+		if (existing) {
+			await this.app.vault.modifyBinary(existing, data);
+		} else {
+			await this.app.vault.createBinary(path, data);
+		}
+	}
+
+	async deleteLocalFile(path: string): Promise<void> {
+		if (path.startsWith('.obsidian/')) {
+			try { await this.app.vault.adapter.remove(path); } catch { /* already gone */ }
+			return;
+		}
+		const file = this.app.vault.getFileByPath(path);
+		if (file) await this.app.vault.delete(file);
+	}
+
+	private async getFileMtime(path: string): Promise<number | undefined> {
+		if (path.startsWith('.obsidian/')) {
+			try {
+				const stat = await this.app.vault.adapter.stat(path);
+				return stat?.mtime;
+			} catch { return undefined; }
+		}
+		return this.app.vault.getFileByPath(path)?.stat.mtime;
+	}
+
+	private async ensureAdapterDir(dir: string): Promise<void> {
+		if (!dir || dir === '.') return;
+		if (await this.app.vault.adapter.exists(dir)) return;
+		const parent = dir.split('/').slice(0, -1).join('/');
+		if (parent) await this.ensureAdapterDir(parent);
+		await this.app.vault.adapter.mkdir(dir);
+	}
+
+	// ── File discovery ────────────────────────────────────────────────────────
+
+	private getVaultFiles(): TFile[] {
+		return this.app.vault.getFiles();
+	}
+
+	private async listSettingsFiles(): Promise<{ path: string; mtime: number }[]> {
+		const results: { path: string; mtime: number }[] = [];
+		await this.walkAdapterDir('.obsidian', results);
+		return results.filter(f => !isSettingsExcluded(f.path));
+	}
+
+	private async walkAdapterDir(
+		dir: string,
+		results: { path: string; mtime: number }[],
+	): Promise<void> {
+		try {
+			const listing = await this.app.vault.adapter.list(dir);
+			for (const filePath of listing.files) {
+				const stat = await this.app.vault.adapter.stat(filePath);
+				results.push({ path: filePath, mtime: stat?.mtime ?? 0 });
+			}
+			for (const subDir of listing.folders) {
+				await this.walkAdapterDir(subDir, results);
+			}
+		} catch { /* folder does not exist yet */ }
+	}
+
+	private async getAllLocalEntries(
+		syncSettings: boolean,
+	): Promise<{ path: string; mtime: number }[]> {
+		const entries: { path: string; mtime: number }[] = this.getVaultFiles().map(f => ({
+			path: f.path,
+			mtime: f.stat.mtime,
+		}));
+		if (syncSettings) {
+			const settingsEntries = await this.listSettingsFiles();
+			entries.push(...settingsEntries);
+		}
+		return entries;
+	}
+
+	// ── Diff ──────────────────────────────────────────────────────────────────
+
+	async computeDiff(syncSettings = false): Promise<SyncDiff> {
+		const [serverManifest, localEntries] = await Promise.all([
 			this.api.getManifest(),
-			this.getLocalFiles(),
+			this.getAllLocalEntries(syncSettings),
 		]);
 
 		const serverMap = new Map<string, ManifestEntry>(
 			serverManifest.map(e => [e.path, e]),
 		);
-		const localMap = new Map<string, TFile>(
-			localFiles.map(f => [f.path, f]),
+		const localMap = new Map<string, number>(
+			localEntries.map(e => [e.path, e.mtime]),
 		);
 
 		const push: string[] = [];
@@ -71,7 +189,7 @@ export class SyncEngine {
 		const conflicts: string[] = [];
 
 		// Files that exist locally
-		for (const [path, file] of localMap) {
+		for (const [path, mtime] of localMap) {
 			const serverEntry = serverMap.get(path);
 			const lastSync = this.lastSyncState[path];
 
@@ -84,11 +202,11 @@ export class SyncEngine {
 				}
 			} else {
 				const serverChanged = serverEntry.checksum !== lastSync?.checksum;
-				const localMtimeSinceSync = file.stat.mtime > ((lastSync?.mtime ?? 0) + 1000);
+				const localMtimeSinceSync = mtime > ((lastSync?.mtime ?? 0) + 1000);
 
 				if (!lastSync) {
-					// Never synced: read local checksum and compare
-					const data = await this.app.vault.readBinary(file);
+					// Never synced: compute local checksum and compare
+					const data = await this.readLocalFile(path);
 					const localChecksum = await sha256(data);
 					if (localChecksum !== serverEntry.checksum) push.push(path);
 				} else if (serverChanged && localMtimeSinceSync) {
@@ -102,15 +220,19 @@ export class SyncEngine {
 			}
 		}
 
-		// Files that exist on server but not locally → user chooses: download or delete
+		// Files that exist on server but not locally
 		for (const [path] of serverMap) {
 			if (!localMap.has(path)) {
+				// Only surface settings files as serverOnly if syncSettings is on
+				if (path.startsWith('.obsidian/') && !syncSettings) continue;
 				serverOnly.push(path);
 			}
 		}
 
 		return { push, pull, serverOnly, deleteRemote, deleteLocal, conflicts };
 	}
+
+	// ── Execute ───────────────────────────────────────────────────────────────
 
 	async executeActions(
 		diff: SyncDiff,
@@ -155,37 +277,20 @@ export class SyncEngine {
 	private async executeOne(action: SyncAction): Promise<void> {
 		switch (action.type) {
 			case 'push': {
-				const file = this.app.vault.getFileByPath(action.path);
-				if (!file) throw new Error('Datei nicht gefunden');
-				const data = await this.app.vault.readBinary(file);
+				const data = await this.readLocalFile(action.path);
 				const ok = await this.api.uploadFile(action.path, data);
 				if (!ok) throw new Error('Upload fehlgeschlagen');
 				const checksum = await sha256(data);
-				this.lastSyncState[action.path] = {
-					checksum, size: data.byteLength, mtime: file.stat.mtime,
-				};
+				const mtime = await this.getFileMtime(action.path);
+				this.lastSyncState[action.path] = { checksum, size: data.byteLength, mtime };
 				break;
 			}
 			case 'pull': {
 				const data = await this.api.downloadFile(action.path);
-				const parts = action.path.split('/');
-				if (parts.length > 1) {
-					const dir = parts.slice(0, -1).join('/');
-					if (!this.app.vault.getAbstractFileByPath(dir)) {
-						await this.app.vault.createFolder(dir);
-					}
-				}
-				const existing = this.app.vault.getFileByPath(action.path);
-				if (existing) {
-					await this.app.vault.modifyBinary(existing, data);
-				} else {
-					await this.app.vault.createBinary(action.path, data);
-				}
+				await this.writeLocalFile(action.path, data);
 				const checksum = await sha256(data);
-				const updated = this.app.vault.getFileByPath(action.path);
-				this.lastSyncState[action.path] = {
-					checksum, size: data.byteLength, mtime: updated?.stat.mtime,
-				};
+				const mtime = await this.getFileMtime(action.path);
+				this.lastSyncState[action.path] = { checksum, size: data.byteLength, mtime };
 				break;
 			}
 			case 'deleteRemote': {
@@ -194,8 +299,7 @@ export class SyncEngine {
 				break;
 			}
 			case 'deleteLocal': {
-				const file = this.app.vault.getFileByPath(action.path);
-				if (file) await this.app.vault.delete(file);
+				await this.deleteLocalFile(action.path);
 				delete this.lastSyncState[action.path];
 				break;
 			}
@@ -205,13 +309,44 @@ export class SyncEngine {
 	async syncAll(
 		conflictResolutions: Map<string, ConflictResolution>,
 		onProgress: (msg: string, done: number, total: number) => void,
+		syncSettings = false,
 	): Promise<{ errors: string[]; diff: SyncDiff }> {
-		const diff = await this.computeDiff();
+		const diff = await this.computeDiff(syncSettings);
 		const { errors } = await this.executeActions(diff, conflictResolutions, onProgress);
 		return { errors, diff };
 	}
 
-	private getLocalFiles(): TFile[] {
-		return this.app.vault.getFiles();
+	// ── Vault-Initialisierung vom Server ──────────────────────────────────────
+
+	async pullAllFromServer(
+		onProgress: (msg: string, done: number, total: number) => void,
+		includeSettings = false,
+	): Promise<{ downloaded: number; errors: string[] }> {
+		const manifest = await this.api.getManifest();
+
+		const toDownload = includeSettings
+			? manifest
+			: manifest.filter(e => !e.path.startsWith('.obsidian/'));
+
+		const errors: string[] = [];
+		let downloaded = 0;
+
+		for (let i = 0; i < toDownload.length; i++) {
+			const entry = toDownload[i];
+			onProgress(`Lade: ${entry.path}`, i, toDownload.length);
+			try {
+				const data = await this.api.downloadFile(entry.path);
+				await this.writeLocalFile(entry.path, data);
+				const checksum = await sha256(data);
+				const mtime = await this.getFileMtime(entry.path);
+				this.lastSyncState[entry.path] = { checksum, size: data.byteLength, mtime };
+				downloaded++;
+			} catch (e) {
+				errors.push(`${entry.path}: ${(e as Error).message}`);
+			}
+		}
+
+		onProgress('Fertig', toDownload.length, toDownload.length);
+		return { downloaded, errors };
 	}
 }

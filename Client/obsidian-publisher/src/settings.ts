@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, Modal, PluginSettingTab, Setting } from 'obsidian';
 import type ObsidianPublisher from './main';
 
 export interface PublisherSettings {
@@ -9,6 +9,7 @@ export interface PublisherSettings {
 	autoSyncIntervalMinutes: number;
 	deviceName: string;
 	syncOnStartup: boolean;
+	syncObsidianSettings: boolean;
 }
 
 export const DEFAULT_SETTINGS: PublisherSettings = {
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: PublisherSettings = {
 	autoSyncIntervalMinutes: 30,
 	deviceName: '',
 	syncOnStartup: false,
+	syncObsidianSettings: false,
 };
 
 export class PublisherSettingTab extends PluginSettingTab {
@@ -120,6 +122,27 @@ export class PublisherSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		new Setting(containerEl)
+			.setName('Obsidian-Einstellungen synchronisieren')
+			.setDesc('Synchronisiert .obsidian/ (Plugins, Themes, Snippets) — workspace.json wird ausgeschlossen')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.syncObsidianSettings)
+				.onChange(async value => {
+					this.plugin.settings.syncObsidianSettings = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// ── Vault-Initialisierung ────────────────────────────────────────────────
+		containerEl.createEl('h3', { text: 'Vault-Initialisierung' });
+
+		new Setting(containerEl)
+			.setName('Vault vom Server befüllen')
+			.setDesc('Lädt alle Dateien vom Server herunter und schreibt sie in diese Vault. Bestehende Dateien werden überschrieben.')
+			.addButton(btn => btn
+				.setButtonText('Vault initialisieren …')
+				.setWarning()
+				.onClick(() => new InitVaultModal(this.app, this.plugin).open()));
+
 		// ── Verbindungstest ──────────────────────────────────────────────────────
 		containerEl.createEl('h3', { text: 'Verbindung' });
 
@@ -146,5 +169,78 @@ export class PublisherSettingTab extends PluginSettingTab {
 						btn.buttonEl.style.color = '';
 					}, 4000);
 				}));
+	}
+}
+
+class InitVaultModal extends Modal {
+	private plugin: ObsidianPublisher;
+
+	constructor(app: App, plugin: ObsidianPublisher) {
+		super(app);
+		this.plugin = plugin;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl('h2', { text: 'Vault vom Server initialisieren' });
+		contentEl.createEl('p', {
+			text: '⚠️ Alle Dateien auf dem Server werden in diese Vault heruntergeladen. Bestehende lokale Dateien mit gleichem Pfad werden überschrieben.',
+		});
+
+		let includeSettings = this.plugin.settings.syncObsidianSettings;
+		const settingRow = new Setting(contentEl)
+			.setName('Obsidian-Einstellungen einbeziehen')
+			.setDesc('Lädt auch .obsidian/ (Plugins, Themes, Snippets) herunter');
+		if (!this.plugin.settings.syncObsidianSettings) {
+			settingRow.setDesc('.obsidian/ wird nicht heruntergeladen (in den Einstellungen deaktiviert)');
+			settingRow.setDisabled(true);
+		} else {
+			settingRow.addToggle(t => t
+				.setValue(true)
+				.onChange(v => { includeSettings = v; }));
+		}
+
+		const progressEl = contentEl.createDiv({ attr: { style: 'display:none;margin-top:0.75rem;' } });
+		const progressText = progressEl.createEl('p', { text: '' });
+
+		const btnRow = contentEl.createDiv({ attr: { style: 'display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;' } });
+		const cancelBtn = btnRow.createEl('button', { text: 'Abbrechen' });
+		cancelBtn.onclick = () => this.close();
+
+		const startBtn = btnRow.createEl('button', {
+			text: 'Initialisieren',
+			attr: { style: 'background:var(--color-red,#e74c3c);color:#fff;border:none;padding:0.4rem 0.8rem;border-radius:4px;cursor:pointer;' },
+		});
+		startBtn.onclick = async () => {
+			startBtn.disabled = true;
+			cancelBtn.disabled = true;
+			progressEl.style.display = 'block';
+			progressText.setText('Verbinde …');
+
+			const { downloaded, errors } = await this.plugin.syncEngine.pullAllFromServer(
+				(msg, done, total) => {
+					progressText.setText(total > 0 ? `${msg} (${done}/${total})` : msg);
+				},
+				includeSettings,
+			);
+
+			await this.plugin.savePluginData();
+
+			if (errors.length > 0) {
+				progressText.setText(`✓ ${downloaded} Dateien geladen. ${errors.length} Fehler:\n${errors.slice(0, 5).join('\n')}`);
+			} else {
+				progressText.setText(`✓ ${downloaded} Dateien erfolgreich geladen.`);
+			}
+
+			const closeBtn = contentEl.createEl('button', {
+				text: 'Schließen',
+				attr: { style: 'margin-top:0.75rem;' },
+			});
+			closeBtn.onclick = () => this.close();
+		};
+	}
+
+	onClose() {
+		this.contentEl.empty();
 	}
 }
