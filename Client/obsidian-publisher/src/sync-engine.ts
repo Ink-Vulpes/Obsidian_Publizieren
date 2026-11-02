@@ -245,6 +245,7 @@ export class SyncEngine {
 		conflictResolutions: Map<string, ConflictResolution>,
 		onProgress: (msg: string, done: number, total: number) => void,
 		serverOnlyActions: Map<string, 'pull' | 'deleteRemote'> = new Map(),
+		deleteLocalActions: Map<string, 'deleteLocal' | 'push'> = new Map(),
 	): Promise<{ errors: string[] }> {
 		const actions: SyncAction[] = [
 			...diff.push.map(p => ({ type: 'push' as const, path: p })),
@@ -254,7 +255,10 @@ export class SyncEngine {
 				path: p,
 			})),
 			...diff.deleteRemote.map(p => ({ type: 'deleteRemote' as const, path: p })),
-			...diff.deleteLocal.map(p => ({ type: 'deleteLocal' as const, path: p })),
+			...diff.deleteLocal.map(p => ({
+				type: (deleteLocalActions.get(p) ?? 'deleteLocal') as 'deleteLocal' | 'push',
+				path: p,
+			})),
 			// resolve conflicts
 			...diff.conflicts.flatMap(p => {
 				const res = conflictResolutions.get(p) ?? 'push';
