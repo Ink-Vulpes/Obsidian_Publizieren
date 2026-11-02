@@ -3,6 +3,7 @@ import type { ApiClient } from '../api';
 import type { SyncEngine, SyncDiff, ConflictResolution } from '../sync-engine';
 import { FileDiffModal } from '../modals/FileDiffModal';
 import type { DiffAction } from '../modals/FileDiffModal';
+import { ConflictMergeModal } from '../modals/ConflictMergeModal';
 
 export const CHANGES_VIEW_TYPE = 'obsidian-publisher-changes';
 
@@ -19,6 +20,7 @@ export class ChangesView extends ItemView {
 	private state: State = { kind: 'idle' };
 	private resolutions = new Map<string, ConflictResolution>();
 	private serverOnlyActions = new Map<string, 'pull' | 'deleteRemote'>();
+	private deleteLocalActions = new Map<string, 'deleteLocal' | 'push'>();
 	private selected = new Set<string>();
 	private onSyncDone: (() => void) | null = null;
 	private getSyncSettings: () => boolean;
@@ -51,6 +53,10 @@ export class ChangesView extends ItemView {
 			const newSoa = new Map<string, 'pull' | 'deleteRemote'>();
 			for (const p of (diff.serverOnly ?? [])) newSoa.set(p, this.serverOnlyActions.get(p) ?? 'pull');
 			this.serverOnlyActions = newSoa;
+			// Keep existing deleteLocal actions, add defaults for new files
+			const newDla = new Map<string, 'deleteLocal' | 'push'>();
+			for (const p of diff.deleteLocal) newDla.set(p, this.deleteLocalActions.get(p) ?? 'deleteLocal');
+			this.deleteLocalActions = newDla;
 			// Select everything by default on each refresh
 			this.selected = new Set([
 				...diff.push, ...diff.pull, ...(diff.serverOnly ?? []),
@@ -132,7 +138,7 @@ export class ChangesView extends ItemView {
 		this.renderSection(bodyEl, `↓ Herunterladen`, diff.pull, 'publisher-changes-pull', 'pull');
 		this.renderServerOnly(bodyEl, diff.serverOnly ?? []);
 		this.renderSection(bodyEl, `✕ Vom Server löschen`, diff.deleteRemote, 'publisher-changes-del', 'deleteRemote');
-		this.renderSection(bodyEl, `✕ Lokal löschen`, diff.deleteLocal, 'publisher-changes-del', 'deleteLocal');
+		this.renderDeleteLocal(bodyEl, diff.deleteLocal);
 		this.renderConflicts(bodyEl, diff.conflicts);
 
 		// Footer
@@ -265,6 +271,69 @@ export class ChangesView extends ItemView {
 		}
 	}
 
+	private renderDeleteLocal(parent: HTMLElement, paths: string[]) {
+		if (paths.length === 0) return;
+		const key = 'publisher-section-collapsed-delete-local';
+		const collapsed = (() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } })();
+
+		const section = parent.createEl('div', { cls: 'publisher-changes-section' });
+		const header = section.createEl('div', { cls: 'publisher-changes-section-header' });
+		const sectionCb = header.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
+		sectionCb.type = 'checkbox';
+		this.setTristate(sectionCb, paths);
+		sectionCb.onchange = () => {
+			if (sectionCb.checked) paths.forEach(p => this.selected.add(p));
+			else paths.forEach(p => this.selected.delete(p));
+			this.rerender();
+		};
+		const labelEl = header.createEl('span', {
+			text: `✕ Lokal löschen (${paths.length})`,
+			cls: 'publisher-changes-section-label publisher-changes-del',
+		});
+		const arrow = header.createEl('span', { cls: 'publisher-changes-collapse-arrow', text: collapsed ? '▶' : '▼' });
+
+		const body = section.createEl('div');
+		if (collapsed) body.style.display = 'none';
+
+		const toggle = () => {
+			const nowCollapsed = body.style.display !== 'none';
+			body.style.display = nowCollapsed ? 'none' : '';
+			arrow.textContent = nowCollapsed ? '▶' : '▼';
+			try { localStorage.setItem(key, nowCollapsed ? '1' : '0'); } catch { /* */ }
+		};
+		labelEl.style.cursor = 'pointer';
+		labelEl.onclick = toggle;
+		arrow.onclick = toggle;
+
+		for (const p of paths) {
+			const row = body.createEl('div', { cls: 'publisher-changes-conflict-row' });
+
+			const cb = row.createEl('input', { cls: 'publisher-changes-cb' }) as HTMLInputElement;
+			cb.type = 'checkbox';
+			cb.checked = this.selected.has(p);
+			cb.onchange = () => {
+				if (cb.checked) this.selected.add(p);
+				else this.selected.delete(p);
+				this.rerender();
+			};
+
+			row.createEl('span', { text: p, cls: 'publisher-changes-conflict-path' });
+
+			const btns = row.createEl('div', { cls: 'publisher-changes-conflict-btns' });
+			const current = this.deleteLocalActions.get(p) ?? 'deleteLocal';
+			const deleteBtn = btns.createEl('button', { text: '✕ Löschen', cls: 'publisher-conflict-btn' + (current === 'deleteLocal' ? ' active' : '') });
+			const uploadBtn = btns.createEl('button', { text: '↑ Hochladen', cls: 'publisher-conflict-btn' + (current === 'push' ? ' active' : '') });
+
+			const setAction = (action: 'deleteLocal' | 'push', active: HTMLButtonElement) => {
+				this.deleteLocalActions.set(p, action);
+				[deleteBtn, uploadBtn].forEach(b => b.removeClass('active'));
+				active.addClass('active');
+			};
+			deleteBtn.onclick = () => setAction('deleteLocal', deleteBtn);
+			uploadBtn.onclick = () => setAction('push', uploadBtn);
+		}
+	}
+
 	private renderConflicts(parent: HTMLElement, paths: string[]) {
 		if (paths.length === 0) return;
 		const key = 'publisher-section-collapsed-conflicts';
@@ -320,15 +389,22 @@ export class ChangesView extends ItemView {
 			const localBtn  = btns.createEl('button', { text: 'Lokal',  cls: 'publisher-conflict-btn' + (current === 'push' ? ' active' : '') });
 			const serverBtn = btns.createEl('button', { text: 'Server', cls: 'publisher-conflict-btn' + (current === 'pull' ? ' active' : '') });
 			const skipBtn   = btns.createEl('button', { text: 'Skip',   cls: 'publisher-conflict-btn' + (current === 'skip' ? ' active' : '') });
+			const mergeBtn  = btns.createEl('button', { text: '✎ Merge', cls: 'publisher-conflict-btn' + (current === 'merge' ? ' active' : '') });
 
 			const setRes = (res: ConflictResolution, active: HTMLButtonElement) => {
 				this.resolutions.set(p, res);
-				[localBtn, serverBtn, skipBtn].forEach(b => b.removeClass('active'));
+				[localBtn, serverBtn, skipBtn, mergeBtn].forEach(b => b.removeClass('active'));
 				active.addClass('active');
 			};
 			localBtn.onclick  = () => setRes('push', localBtn);
 			serverBtn.onclick = () => setRes('pull', serverBtn);
 			skipBtn.onclick   = () => setRes('skip', skipBtn);
+			mergeBtn.onclick  = () => {
+				new ConflictMergeModal(this.app, p, this.api, this.engine, () => {
+					// After merge: local file contains the resolved content → treat as push
+					setRes('push', localBtn);
+				}).open();
+			};
 		}
 	}
 
@@ -376,6 +452,7 @@ export class ChangesView extends ItemView {
 					this.render();
 				},
 				this.serverOnlyActions,
+				this.deleteLocalActions,
 			);
 			try { await this.api.reloadVault(); } catch { /* non-critical */ }
 			if (errors.length > 0) new Notice(`Sync: ${errors.length} Fehler — ${errors[0]}`);

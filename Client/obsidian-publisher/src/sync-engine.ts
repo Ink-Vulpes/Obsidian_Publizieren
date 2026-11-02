@@ -23,9 +23,10 @@ export interface SyncAction {
 
 // These .obsidian/ files are device-specific or ephemeral and excluded from sync.
 const SETTINGS_EXCLUDE_LIST = new Set([
-	'.obsidian/workspace.json',       // open tabs / panel layout — per device
-	'.obsidian/workspace-mobile.json', // mobile layout — per device
-	'.obsidian/graph.json',            // graph view state (zoom/pan) — per device
+	'.obsidian/workspace.json',                              // open tabs / panel layout — per device
+	'.obsidian/workspace-mobile.json',                       // mobile layout — per device
+	'.obsidian/graph.json',                                  // graph view state (zoom/pan) — per device
+	'.obsidian/plugins/obsidian-publisher/data.json',        // this plugin's own settings (credentials, device id, sync state)
 ]);
 
 const SETTINGS_EXCLUDE_PREFIXES = [
@@ -244,6 +245,7 @@ export class SyncEngine {
 		conflictResolutions: Map<string, ConflictResolution>,
 		onProgress: (msg: string, done: number, total: number) => void,
 		serverOnlyActions: Map<string, 'pull' | 'deleteRemote'> = new Map(),
+		deleteLocalActions: Map<string, 'deleteLocal' | 'push'> = new Map(),
 	): Promise<{ errors: string[] }> {
 		const actions: SyncAction[] = [
 			...diff.push.map(p => ({ type: 'push' as const, path: p })),
@@ -253,7 +255,10 @@ export class SyncEngine {
 				path: p,
 			})),
 			...diff.deleteRemote.map(p => ({ type: 'deleteRemote' as const, path: p })),
-			...diff.deleteLocal.map(p => ({ type: 'deleteLocal' as const, path: p })),
+			...diff.deleteLocal.map(p => ({
+				type: (deleteLocalActions.get(p) ?? 'deleteLocal') as 'deleteLocal' | 'push',
+				path: p,
+			})),
 			// resolve conflicts
 			...diff.conflicts.flatMap(p => {
 				const res = conflictResolutions.get(p) ?? 'push';
