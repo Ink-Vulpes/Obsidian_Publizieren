@@ -12,22 +12,17 @@ pub async fn index(
     Extension(current_user): Extension<CurrentUser>,
 ) -> Response {
     let vault = state.vault.read().await;
-    let wl = state.whitelist.read().unwrap();
-    let bl = state.blacklist.read().unwrap();
 
     let visible = |n: &&crate::vault::NoteEntry| {
-        !bl.contains(&n.slug)
-            && (wl.is_empty() || wl.contains(&n.slug))
-            && current_user.can_see_note(&n.slug)
+        current_user.can_see_note(&n.slug)
             && (current_user.is_admin || n.is_published)
+            && (current_user.is_admin || current_user.sees_all || current_user.sees_published || current_user.can_see_group_note(&n.required_groups))
     };
     let first = ["index", "home", "readme"]
         .iter()
         .find_map(|t| vault.find_by_title(t).filter(|n| visible(&n)))
         .or_else(|| vault.notes.values().find(|n| visible(n)))
         .map(|n| n.slug.clone());
-    drop(wl);
-    drop(bl);
     drop(vault);
 
     if let Some(slug) = first {
@@ -71,23 +66,7 @@ pub async fn render_note(
         }
     };
 
-    // Whitelist / blacklist / folder-access check
-    {
-        let bl = state.blacklist.read().unwrap();
-        let wl = state.whitelist.read().unwrap();
-        if bl.contains(&entry.slug) {
-            drop(bl);
-            drop(wl);
-            drop(vault);
-            return not_found(&state);
-        }
-        if !wl.is_empty() && !wl.contains(&entry.slug) {
-            drop(bl);
-            drop(wl);
-            drop(vault);
-            return not_found(&state);
-        }
-    }
+    // Folder-access check
     if !current_user.can_see_note(&entry.slug) {
         drop(vault);
         return not_found(&state);
@@ -310,15 +289,12 @@ async fn render_base(
     Html(state.tera.render("bases.html", &ctx).unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")))
 }
 
-/// Filtered file tree that respects user folder/list permissions.
+/// Filtered file tree respecting user folder and group permissions.
 pub fn build_file_tree_json_filtered(
     vault: &crate::vault::Vault,
     user: &CurrentUser,
-    state: &AppState,
+    _state: &AppState,
 ) -> serde_json::Value {
-    let wl = state.whitelist.read().unwrap();
-    let bl = state.blacklist.read().unwrap();
-
     fn insert(node: &mut serde_json::Value, parts: &[&str], slug: &str, title: &str, kind: &str) {
         if parts.is_empty() { return; }
         let arr = node.as_array_mut().unwrap();
@@ -348,9 +324,6 @@ pub fn build_file_tree_json_filtered(
     let sees_published = user.sees_published;
 
     for note in sorted {
-        // Apply list filters
-        if bl.contains(&note.slug) { continue; }
-        if !wl.is_empty() && !wl.contains(&note.slug) { continue; }
         // Apply user folder filter
         if !user.can_see_note(&note.slug) { continue; }
         // Publish check (all_group bypasses, others need is_published)

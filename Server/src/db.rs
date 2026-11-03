@@ -65,6 +65,7 @@ pub struct UserWithPermissions {
 pub struct Group {
     pub id: u32,
     pub name: String,
+    pub query: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -78,6 +79,7 @@ pub struct GroupMember {
 pub struct GroupWithMembers {
     pub id: u32,
     pub name: String,
+    pub query: Option<String>,
     pub members: Vec<GroupMember>,
 }
 
@@ -367,82 +369,6 @@ pub async fn consume_invite(pool: &MySqlPool, token: &str) -> anyhow::Result<boo
     Ok(true)
 }
 
-// ── Whitelist / Blacklist ────────────────────────────────────────────────────
-
-pub async fn get_whitelist(pool: &MySqlPool) -> anyhow::Result<Vec<String>> {
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT slug FROM note_whitelist ORDER BY slug")
-            .fetch_all(pool)
-            .await?;
-    Ok(rows.into_iter().map(|(s,)| s).collect())
-}
-
-pub async fn get_blacklist(pool: &MySqlPool) -> anyhow::Result<Vec<String>> {
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT slug FROM note_blacklist ORDER BY slug")
-            .fetch_all(pool)
-            .await?;
-    Ok(rows.into_iter().map(|(s,)| s).collect())
-}
-
-pub async fn add_to_whitelist(pool: &MySqlPool, slug: &str, added_by: u32) -> anyhow::Result<()> {
-    sqlx::query("INSERT IGNORE INTO note_whitelist (slug, added_by) VALUES (?, ?)")
-        .bind(slug)
-        .bind(added_by)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn remove_from_whitelist(pool: &MySqlPool, slug: &str) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM note_whitelist WHERE slug = ?")
-        .bind(slug)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn add_to_blacklist(pool: &MySqlPool, slug: &str, added_by: u32) -> anyhow::Result<()> {
-    sqlx::query("INSERT IGNORE INTO note_blacklist (slug, added_by) VALUES (?, ?)")
-        .bind(slug)
-        .bind(added_by)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn remove_from_blacklist(pool: &MySqlPool, slug: &str) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM note_blacklist WHERE slug = ?")
-        .bind(slug)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn set_whitelist(pool: &MySqlPool, slugs: &[String], added_by: u32) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM note_whitelist").execute(pool).await?;
-    for slug in slugs {
-        sqlx::query("INSERT IGNORE INTO note_whitelist (slug, added_by) VALUES (?, ?)")
-            .bind(slug)
-            .bind(added_by)
-            .execute(pool)
-            .await?;
-    }
-    Ok(())
-}
-
-pub async fn set_blacklist(pool: &MySqlPool, slugs: &[String], added_by: u32) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM note_blacklist").execute(pool).await?;
-    for slug in slugs {
-        sqlx::query("INSERT IGNORE INTO note_blacklist (slug, added_by) VALUES (?, ?)")
-            .bind(slug)
-            .bind(added_by)
-            .execute(pool)
-            .await?;
-    }
-    Ok(())
-}
-
 // ── App settings ─────────────────────────────────────────────────────────────
 
 pub async fn get_setting(pool: &MySqlPool, key: &str) -> anyhow::Result<Option<String>> {
@@ -508,12 +434,22 @@ pub async fn delete_vault_file(pool: &MySqlPool, path: &str) -> anyhow::Result<(
 
 // ── Groups ───────────────────────────────────────────────────────────────────
 
-pub async fn create_group(pool: &MySqlPool, name: &str) -> anyhow::Result<u32> {
-    let res = sqlx::query("INSERT INTO `groups` (name) VALUES (?)")
+pub async fn create_group(pool: &MySqlPool, name: &str, query: Option<&str>) -> anyhow::Result<u32> {
+    let res = sqlx::query("INSERT INTO `groups` (name, query) VALUES (?, ?)")
         .bind(name)
+        .bind(query)
         .execute(pool)
         .await?;
     Ok(res.last_insert_id() as u32)
+}
+
+pub async fn update_group_query(pool: &MySqlPool, group_id: u32, query: Option<&str>) -> anyhow::Result<()> {
+    sqlx::query("UPDATE `groups` SET query = ? WHERE id = ?")
+        .bind(query)
+        .bind(group_id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn delete_group(pool: &MySqlPool, group_id: u32) -> anyhow::Result<()> {
@@ -526,7 +462,7 @@ pub async fn delete_group(pool: &MySqlPool, group_id: u32) -> anyhow::Result<()>
 
 pub async fn list_groups(pool: &MySqlPool) -> anyhow::Result<Vec<Group>> {
     Ok(sqlx::query_as::<_, Group>(
-        "SELECT id, name, created_at FROM `groups` ORDER BY name",
+        "SELECT id, name, query, created_at FROM `groups` ORDER BY name",
     )
     .fetch_all(pool)
     .await?)
@@ -548,6 +484,7 @@ pub async fn list_groups_with_members(pool: &MySqlPool) -> anyhow::Result<Vec<Gr
         result.push(GroupWithMembers {
             id: g.id,
             name: g.name,
+            query: g.query,
             members: rows.into_iter().map(|(id, username)| GroupMember { id, username }).collect(),
         });
     }

@@ -1,7 +1,7 @@
 import { App, Modal, Notice } from 'obsidian';
 import type { ApiClient, Group, UserWithPermissions } from '../api';
 
-type Tab = 'users' | 'invite' | 'lists' | 'groups' | 'settings' | 'proposals';
+type Tab = 'users' | 'invite' | 'groups' | 'settings' | 'proposals';
 
 export class AdminModal extends Modal {
 	private api: ApiClient;
@@ -29,7 +29,6 @@ export class AdminModal extends Modal {
 		const tabs: { id: Tab; label: string }[] = [
 			{ id: 'users', label: 'Benutzer' },
 			{ id: 'invite', label: 'Einladung' },
-			{ id: 'lists', label: 'White-/Blacklist' },
 			{ id: 'proposals', label: 'Anträge' },
 			{ id: 'groups', label: 'Gruppen' },
 			{ id: 'settings', label: 'Einstellungen' },
@@ -50,7 +49,6 @@ export class AdminModal extends Modal {
 		switch (this.activeTab) {
 			case 'users':    this.renderUsers(body); break;
 			case 'invite':   this.renderInvite(body); break;
-			case 'lists':    this.renderLists(body); break;
 			case 'groups':    this.renderGroups(body); break;
 			case 'settings':  this.renderSettings(body); break;
 			case 'proposals': this.renderProposals(body); break;
@@ -250,49 +248,6 @@ export class AdminModal extends Modal {
 		};
 	}
 
-	// ── Lists tab ──────────────────────────────────────────────────────────────
-
-	private renderLists(parent: HTMLElement) {
-		const loading = parent.createEl('p', { text: 'Lade Listen …', cls: 'publisher-progress' });
-
-		this.api.adminGetLists().then(({ whitelist, blacklist }) => {
-			loading.remove();
-
-			parent.createEl('p', {
-				text: 'Eine Whitelist bedeutet: nur diese Slugs werden veröffentlicht. Leer = alle erlaubt.',
-			}).style.fontSize = '13px';
-
-			parent.createEl('label', { text: 'Whitelist (ein Slug pro Zeile):' });
-			const wlArea = parent.createEl('textarea', { cls: 'publisher-list-textarea' });
-			wlArea.rows = 6;
-			wlArea.value = whitelist.join('\n');
-
-			parent.createEl('label', { text: 'Blacklist (ein Slug pro Zeile):' });
-			const blArea = parent.createEl('textarea', { cls: 'publisher-list-textarea' });
-			blArea.rows = 6;
-			blArea.value = blacklist.join('\n');
-
-			const saveBtn = parent.createEl('button', { text: 'Speichern', cls: 'mod-cta' });
-			saveBtn.onclick = async () => {
-				const wl = wlArea.value.split('\n').map(s => s.trim()).filter(Boolean);
-				const bl = blArea.value.split('\n').map(s => s.trim()).filter(Boolean);
-				saveBtn.setText('…'); saveBtn.disabled = true;
-				try {
-					await this.api.adminSetLists(wl, bl);
-					new Notice('Listen gespeichert');
-					saveBtn.setText('✓ Gespeichert');
-				} catch (e) {
-					new Notice('Fehler: ' + (e as Error).message);
-					saveBtn.setText('Fehler');
-				}
-				setTimeout(() => { saveBtn.setText('Speichern'); saveBtn.disabled = false; }, 3000);
-			};
-		}).catch(e => {
-			loading.setText('Fehler: ' + (e as Error).message);
-			loading.style.color = 'var(--color-red)';
-		});
-	}
-
 	// ── Settings tab ───────────────────────────────────────────────────────────
 
 	private renderSettings(parent: HTMLElement) {
@@ -356,9 +311,11 @@ export class AdminModal extends Modal {
 		Promise.all([this.api.adminListGroups(), this.api.adminListUsers()]).then(([groups, users]) => {
 			loading.remove();
 
-			parent.createEl('p', {
-				text: 'Gruppen erlauben den Zugriff auf Notizen einzuschränken. Frontmatter: group: gruppenname',
-			}).style.fontSize = '13px';
+			const hint = parent.createEl('p');
+			hint.style.fontSize = '12px';
+			hint.innerHTML = '<strong>Zugriffsqueries</strong>: Eine Bedingung pro Zeile (AND-Verknüpfung).<br>' +
+				'<code>feld = wert</code> · <code>feld contains text</code> · <code>feld starts_with prefix</code><br>' +
+				'Spezialfelder: <code>tag</code>, <code>path</code>, <code>title</code>. Alle anderen Felder = Frontmatter-Keys.';
 
 			const nonAdminUsers = users.filter(u => !u.is_admin);
 
@@ -420,6 +377,36 @@ export class AdminModal extends Modal {
 			} catch (e) {
 				new Notice('Fehler: ' + (e as Error).message);
 			}
+		};
+
+		// ── Query section ───────────────────────────────────────────────────
+		const querySection = card.createEl('div');
+		querySection.style.cssText = 'margin:8px 0;';
+		const queryLabel = querySection.createEl('p', { text: 'Zugriffsquery:' });
+		queryLabel.style.cssText = 'font-size:12px;color:var(--text-muted);margin:0 0 3px;';
+		const queryArea = querySection.createEl('textarea');
+		queryArea.value = group.query ?? '';
+		queryArea.placeholder = '# Leer = kein query-basierter Zugriff\ntag = premium\npublished = true';
+		queryArea.rows = 4;
+		queryArea.style.cssText = 'width:100%;font-family:monospace;font-size:11px;background:var(--background-secondary);border:1px solid var(--background-modifier-border);border-radius:4px;padding:4px 6px;color:var(--text-normal);resize:vertical;box-sizing:border-box;';
+		const queryRow = querySection.createEl('div');
+		queryRow.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:4px;';
+		const queryBtn = queryRow.createEl('button', { text: 'Query speichern', cls: 'mod-cta' });
+		queryBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+		const queryStatus = queryRow.createEl('span');
+		queryStatus.style.cssText = 'font-size:11px;color:var(--text-muted);';
+		queryBtn.onclick = async () => {
+			queryBtn.setText('…'); queryBtn.disabled = true;
+			try {
+				const q = queryArea.value.trim() || null;
+				await this.api.adminUpdateGroup(group.id, q);
+				queryStatus.setText('✓ Gespeichert');
+				setTimeout(() => queryStatus.setText(''), 3000);
+			} catch (e) {
+				new Notice('Fehler: ' + (e as Error).message);
+				queryStatus.setText('Fehler');
+			}
+			queryBtn.setText('Query speichern'); queryBtn.disabled = false;
 		};
 
 		const membersLabel = card.createEl('p', { text: 'Mitglieder:' });

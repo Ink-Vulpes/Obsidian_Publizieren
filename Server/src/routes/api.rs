@@ -1,30 +1,18 @@
 use axum::{
     body::Bytes,
     extract::{Multipart, Query, State},
-    extract::Json as ExtractJson,
     http::StatusCode,
     response::Json,
     Extension,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use sha2::Digest;
 
 use crate::{auth::CurrentUser, AppState};
 
 // ── Note visibility helper ────────────────────────────────────────────────────
 
-fn note_visible(note: &crate::vault::NoteEntry, user: &CurrentUser, state: &AppState) -> bool {
-    let wl = state.whitelist.read().unwrap();
-    let bl = state.blacklist.read().unwrap();
-
-    if bl.contains(&note.slug) {
-        return false;
-    }
-    if !wl.is_empty() && !wl.contains(&note.slug) {
-        return false;
-    }
-
+pub fn note_visible(note: &crate::vault::NoteEntry, user: &CurrentUser, _state: &AppState) -> bool {
     let sees_all = user.is_admin || user.sees_all;
     let sees_published = user.sees_published;
 
@@ -173,7 +161,7 @@ pub async fn graph_data(
     Json(GraphData { nodes, links })
 }
 
-// ── File list ─────────────────────────────────────────────────────────────────
+// ── File list (used by note HTML pages) ───────────────────────────────────────
 
 pub async fn file_list(
     State(state): State<AppState>,
@@ -185,91 +173,6 @@ pub async fn file_list(
     Json(tree)
 }
 
-// ── Vault reload ──────────────────────────────────────────────────────────────
-
-pub async fn reload_vault(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let pf = state.publish_field.read().unwrap().clone();
-    let gf = state.group_field.read().unwrap().clone();
-    match crate::vault::Vault::load(&state.config.server.vault_path, &pf, &gf) {
-        Ok(new_vault) => {
-            let count = new_vault.notes.len();
-            let mut vault = state.vault.write().await;
-            *vault = new_vault;
-            drop(vault);
-            // Reload lists from DB
-            if let Ok(wl) = crate::db::get_whitelist(&state.db).await {
-                *state.whitelist.write().unwrap() = wl.into_iter().collect();
-            }
-            if let Ok(bl) = crate::db::get_blacklist(&state.db).await {
-                *state.blacklist.write().unwrap() = bl.into_iter().collect();
-            }
-            Json(serde_json::json!({ "status": "ok", "notes": count }))
-        }
-        Err(e) => Json(serde_json::json!({ "status": "error", "message": e.to_string() })),
-    }
-}
-
-// ── Files manifest (for upload script) ───────────────────────────────────────
-
-#[derive(Serialize)]
-pub struct FileManifestEntry {
-    pub path: String,
-    pub size: u64,
-    pub checksum: String,
-    pub modified: i64,
-}
-
-pub async fn file_manifest(
-    State(state): State<AppState>,
-    Extension(_current_user): Extension<CurrentUser>,
-) -> Json<Vec<FileManifestEntry>> {
-    // All authenticated users may read the manifest (upload/delete are separately guarded).
-
-    let vault_root = PathBuf::from(&state.config.server.vault_path);
-    let mut entries = vec![];
-
-    for ent in walkdir::WalkDir::new(&vault_root)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
-        let path = ent.path();
-        let rel = match path.strip_prefix(&vault_root) {
-            Ok(r) => r.to_string_lossy().replace('\\', "/"),
-            Err(_) => continue,
-        };
-
-        // Exclude the server-side external metadata file from sync
-        if rel == crate::external_meta::META_FILENAME {
-            continue;
-        }
-
-        let meta = match std::fs::metadata(path) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        let Ok(bytes) = std::fs::read(path) else { continue };
-        let checksum = hex::encode(Sha256::digest(&bytes));
-        let modified = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-
-        entries.push(FileManifestEntry {
-            path: rel,
-            size: meta.len(),
-            checksum,
-            modified,
-        });
-    }
-
-    Json(entries)
-}
-
 // ── File upload ───────────────────────────────────────────────────────────────
 
 pub async fn upload_files(
@@ -277,11 +180,13 @@ pub async fn upload_files(
     Extension(current_user): Extension<CurrentUser>,
     mut multipart: Multipart,
 ) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
     if !current_user.can_upload && !current_user.is_admin {
         return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Keine Upload-Berechtigung"}))).into_response();
     }
 
-    let vault_root = PathBuf::from(&state.config.server.vault_path);
+    let vault_root = std::path::PathBuf::from(&state.config.server.vault_path);
     let mut uploaded = 0u32;
     let mut errors: Vec<String> = vec![];
 
@@ -298,8 +203,6 @@ pub async fn upload_files(
             .map(|s| s.to_string())
             .unwrap_or_else(|| filename.clone());
 
-        // Security: prevent path traversal without requiring parent dirs to exist.
-        // Only allow Normal path components (no "..", no absolute paths, no Windows prefixes).
         let rel_clean = rel_path.replace('\\', "/");
         let rel_pb = std::path::PathBuf::from(&rel_clean);
         let is_safe = !rel_clean.is_empty()
@@ -325,7 +228,6 @@ pub async fn upload_files(
                 errors.push(format!("{}: mkdir error: {}", rel_path, e));
                 continue;
             }
-            // Ensure parent directories are traversable (fixes vsftpd-created dirs with 700)
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -333,8 +235,6 @@ pub async fn upload_files(
             }
         }
 
-        // If a previous upload (e.g. via vsftpd) left a file with restrictive permissions,
-        // remove it first so we can replace it.
         if target.exists() {
             let _ = std::fs::remove_file(&target);
         }
@@ -342,7 +242,6 @@ pub async fn upload_files(
         if let Err(e) = std::fs::write(&target, &data) {
             errors.push(format!("{}: write error: {}", rel_path, e));
         } else {
-            // Ensure file is readable by the web server (fixes umask / vsftpd chmod 700)
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -364,59 +263,25 @@ pub async fn upload_files(
     .into_response()
 }
 
-// ── File deletion ─────────────────────────────────────────────────────────────
+// ── File download (for bidirectional sync) ────────────────────────────────────
 
 #[derive(Deserialize)]
-pub struct DeleteQuery {
+pub struct DownloadQuery {
     pub path: String,
 }
-
-pub async fn delete_file(
-    State(state): State<AppState>,
-    Extension(current_user): Extension<CurrentUser>,
-    Query(params): Query<DeleteQuery>,
-) -> axum::response::Response {
-    if !current_user.can_upload && !current_user.is_admin {
-        return (StatusCode::FORBIDDEN, "Keine Berechtigung").into_response();
-    }
-
-    let vault_root = PathBuf::from(&state.config.server.vault_path);
-    let target = vault_root.join(&params.path);
-
-    // Security: prevent path traversal
-    let canonical_vault = vault_root.canonicalize().unwrap_or(vault_root.clone());
-    let Ok(canonical_target) = target.canonicalize() else {
-        return (StatusCode::NOT_FOUND, "Datei nicht gefunden").into_response();
-    };
-    if !canonical_target.starts_with(&canonical_vault) {
-        return (StatusCode::FORBIDDEN, "Pfad außerhalb des Vaults").into_response();
-    }
-
-    match std::fs::remove_file(&target) {
-        Ok(_) => {
-            let _ = crate::db::delete_vault_file(&state.db, &params.path).await;
-            Json(serde_json::json!({"ok": true})).into_response()
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
-    }
-}
-
-// ── File download (for bidirectional sync) ────────────────────────────────────
 
 pub async fn download_file(
     State(state): State<AppState>,
     Extension(current_user): Extension<CurrentUser>,
-    Query(params): Query<DeleteQuery>,
+    Query(params): Query<DownloadQuery>,
 ) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
     if !current_user.can_upload && !current_user.is_admin {
         return (StatusCode::FORBIDDEN, "Keine Berechtigung").into_response();
     }
 
-    let vault_root = PathBuf::from(&state.config.server.vault_path);
+    let vault_root = std::path::PathBuf::from(&state.config.server.vault_path);
     let rel_clean = params.path.replace('\\', "/");
     let rel_pb = std::path::PathBuf::from(&rel_clean);
     let is_safe = !rel_clean.is_empty()
@@ -435,69 +300,3 @@ pub async fn download_file(
         Err(_) => (StatusCode::NOT_FOUND, "Datei nicht gefunden").into_response(),
     }
 }
-
-// ── Delete all vault files ────────────────────────────────────────────────────
-
-pub async fn delete_all_files(
-    State(state): State<AppState>,
-    Extension(current_user): Extension<CurrentUser>,
-) -> axum::response::Response {
-    if !current_user.is_admin {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Nur Admins dürfen alle Dateien löschen"}))).into_response();
-    }
-
-    let vault_root = PathBuf::from(&state.config.server.vault_path);
-    let mut deleted = 0u32;
-    let mut errors: Vec<String> = vec![];
-
-    for ent in walkdir::WalkDir::new(&vault_root)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
-        // Preserve the server-side external metadata file
-        if let Ok(rel) = ent.path().strip_prefix(&vault_root) {
-            if rel.to_string_lossy().replace('\\', "/") == crate::external_meta::META_FILENAME {
-                continue;
-            }
-        }
-        match std::fs::remove_file(ent.path()) {
-            Ok(_) => {
-                if let Ok(rel) = ent.path().strip_prefix(&vault_root) {
-                    let rel_str = rel.to_string_lossy().replace('\\', "/");
-                    let _ = crate::db::delete_vault_file(&state.db, &rel_str).await;
-                }
-                deleted += 1;
-            }
-            Err(e) => errors.push(format!("{}: {}", ent.path().display(), e)),
-        }
-    }
-
-    Json(serde_json::json!({ "deleted": deleted, "errors": errors })).into_response()
-}
-
-// ── Device registration ───────────────────────────────────────────────────────
-
-#[derive(serde::Deserialize)]
-pub struct RegisterDeviceBody {
-    pub device_id: String,
-    pub device_name: String,
-}
-
-pub async fn register_device(
-    State(state): State<AppState>,
-    Extension(current_user): Extension<CurrentUser>,
-    ExtractJson(body): ExtractJson<RegisterDeviceBody>,
-) -> axum::response::Response {
-    match crate::db::upsert_sync_device(&state.db, &body.device_id, &body.device_name, current_user.id).await {
-        Ok(_) => Json(serde_json::json!({"ok": true})).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
-    }
-}
-
-use axum::response::IntoResponse;

@@ -1,0 +1,1 @@
+ALTER TABLE `groups` ADD COLUMN query TEXT NULL AFTER name;

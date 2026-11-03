@@ -31,37 +31,40 @@
 
 {% block scripts %}
 <script>
+async function gql(query, variables = {}) {
+  const r = await fetch('/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables })
+  });
+  const d = await r.json();
+  if (d.errors?.length) throw new Error(d.errors[0].message);
+  return d.data;
+}
+
 async function loadSettings() {
   try {
-    const r = await fetch('/api/admin/settings');
-    if (!r.ok) return;
-    const d = await r.json();
+    const d = await gql('{settings{publish_field,group_field}}');
+    const s = d.settings;
     const f = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
-    f('s-publish-field', d.publish_field);
-    f('s-group-field', d.group_field);
+    f('s-publish-field', s.publish_field);
+    f('s-group-field', s.group_field);
   } catch(e) { console.warn('Settings load failed', e); }
 }
 
 async function saveSettings() {
   const g = id => (document.getElementById(id)?.value ?? '').trim();
-  const body = { publish_field: g('s-publish-field'), group_field: g('s-group-field') || null };
   const status = document.getElementById('settings-status');
   try {
-    const r = await fetch('/api/admin/settings', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    const d = await r.json();
-    if (d.ok) {
-      status.textContent = '✓ Gespeichert';
-      status.style.color = '#6ac47e';
-      setTimeout(() => { status.textContent = ''; }, 3000);
-    } else {
-      status.textContent = '✗ ' + (d.error || 'Fehler');
-      status.style.color = '#e06060';
-    }
+    await gql(
+      'mutation($p:String!,$g:String){update_settings(publish_field:$p,group_field:$g)}',
+      { p: g('s-publish-field'), g: g('s-group-field') || null }
+    );
+    status.textContent = '✓ Gespeichert';
+    status.style.color = '#6ac47e';
+    setTimeout(() => { status.textContent = ''; }, 3000);
   } catch(e) {
-    status.textContent = '✗ ' + e;
+    status.textContent = '✗ ' + e.message;
     status.style.color = '#e06060';
   }
 }

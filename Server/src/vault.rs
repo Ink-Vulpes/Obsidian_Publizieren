@@ -5,6 +5,12 @@ use walkdir::WalkDir;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+/// Minimal group descriptor used to apply query-based access control to vault notes.
+pub struct GroupQuery {
+    pub name: String,
+    pub query: Option<String>,
+}
+
 /// Parse an inline YAML list value like `[a, b, c]` or a plain string.
 pub fn parse_group_list(value: &str) -> Vec<String> {
     let v = value.trim();
@@ -377,6 +383,28 @@ impl Vault {
             search_index,
             asset_paths,
         })
+    }
+
+    /// Augments `required_groups` for every note by evaluating each group's query.
+    ///
+    /// Groups with an empty / None query are skipped.
+    /// This is called after `load()` so that query-based restrictions are additive
+    /// on top of the frontmatter-based `group:` field.
+    pub fn apply_group_queries(&mut self, groups: &[GroupQuery]) {
+        for note in self.notes.values_mut() {
+            for group in groups {
+                let Some(query) = &group.query else { continue };
+                let query = query.trim();
+                if query.is_empty() {
+                    continue;
+                }
+                if crate::query::evaluate_query(query, &note.frontmatter, &note.tags, &note.slug, &note.title) {
+                    if !note.required_groups.contains(&group.name) {
+                        note.required_groups.push(group.name.clone());
+                    }
+                }
+            }
+        }
     }
 
     pub fn find_by_title(&self, title: &str) -> Option<&NoteEntry> {

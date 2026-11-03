@@ -111,16 +111,26 @@
 
 {% block scripts %}
 <script>
+async function gql(query, variables = {}) {
+  const r = await fetch('/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables })
+  });
+  const d = await r.json();
+  if (d.errors?.length) throw new Error(d.errors[0].message);
+  return d.data;
+}
+
 async function createInvite() {
   try {
-    const r = await fetch('/admin/invite', { method: 'POST' });
-    const d = await r.json();
-    if (d.url) {
-      document.getElementById('invite-url').textContent = d.url;
+    const d = await gql('mutation{create_invite{url}}');
+    if (d.create_invite?.url) {
+      document.getElementById('invite-url').textContent = d.create_invite.url;
       document.getElementById('invite-url').style.display = 'block';
       document.getElementById('copy-invite-btn').style.display = 'inline-block';
     }
-  } catch(e) { alert('Fehler: ' + e); }
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 
 function copyInvite() {
@@ -135,39 +145,29 @@ function copyInvite() {
 async function deleteUser(id, name) {
   if (!confirm(`Nutzer "${name}" (ID ${id}) wirklich löschen?`)) return;
   try {
-    const r = await fetch('/admin/users/' + id, { method: 'DELETE' });
-    const d = await r.json();
-    if (d.ok) location.reload();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($id:Int!){delete_user(user_id:$id)}', { id });
+    location.reload();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 
-async function addUserToGroup(userId, btn) {
+async function addUserToGroup(userId) {
   const sel = document.getElementById('grp-sel-' + userId);
   const groupId = parseInt(sel.value);
   if (!groupId) return;
   try {
-    const r = await fetch(`/api/admin/groups/${groupId}/members`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId })
-    });
-    const d = await r.json();
-    if (d.ok) location.reload();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($g:Int!,$u:Int!){add_group_member(group_id:$g,user_id:$u)}', { g: groupId, u: userId });
+    location.reload();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 
-async function removeUserFromGroup(userId, groupName, btn) {
+async function removeUserFromGroup(userId, groupName) {
   try {
-    const r = await fetch('/api/admin/groups');
-    const groups = await r.json();
-    const group = groups.find(g => g.name === groupName);
+    const d = await gql('{groups{id,name}}');
+    const group = d.groups.find(g => g.name === groupName);
     if (!group) { alert('Gruppe nicht gefunden'); return; }
-    const r2 = await fetch(`/api/admin/groups/${group.id}/members/${userId}`, { method: 'DELETE' });
-    const d = await r2.json();
-    if (d.ok) location.reload();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($g:Int!,$u:Int!){remove_group_member(group_id:$g,user_id:$u)}', { g: group.id, u: userId });
+    location.reload();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 </script>
 {% endblock %}
