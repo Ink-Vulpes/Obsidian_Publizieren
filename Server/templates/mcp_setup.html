@@ -6,7 +6,7 @@
 <article class="note-content">
   <div class="note-header">
     <h1>MCP Setup</h1>
-    <p style="color:var(--text-muted);margin-top:.25rem">KI-Zugriff auf diesen Vault via Model Context Protocol</p>
+    <p style="color:var(--text-muted);margin-top:.25rem">KI-Zugriff auf Ihren Vault via Model Context Protocol</p>
   </div>
 
   <div class="note-body">
@@ -14,7 +14,7 @@
     <section id="was-ist-mcp">
       <h2>Was ist MCP?</h2>
       <p>Das <strong>Model Context Protocol (MCP)</strong> ist ein offener Standard, der von Anthropic entwickelt und am 25. November 2024 als Open-Source-Projekt veröffentlicht wurde. Es standardisiert, wie KI-Assistenten (große Sprachmodelle) auf externe Daten und Tools zugreifen.</p>
-      <p>Vor MCP musste für jede Kombination aus KI-Modell und Datenquelle eine eigene Schnittstelle gebaut werden – das sogenannte <em>M×N-Integrationsproblem</em>. MCP löst das mit einer universellen, modellunabhängigen Schnittstelle auf Basis von JSON-RPC 2.0:</p>
+      <p>Vor MCP musste für jede Kombination aus KI-Modell und Datenquelle eine eigene Schnittstelle gebaut werden – das sogenannte <em>M×N-Integrationsproblem</em>. MCP löst dies mit einer universellen, modellunabhängigen Schnittstelle auf Basis von JSON-RPC 2.0:</p>
       <div class="arch-row">
         <div class="arch-box"><strong>Host</strong><span>Dein KI-Assistent<br>(Claude, ChatGPT …)</span></div>
         <div class="arch-arrow">→</div>
@@ -22,12 +22,12 @@
         <div class="arch-arrow">→</div>
         <div class="arch-box arch-box-accent"><strong>MCP Server</strong><span>Dieser Vault<br>(/mcp Endpunkt)</span></div>
       </div>
-      <p>Inzwischen unterstützen alle großen KI-Anbieter MCP – darunter OpenAI, Google DeepMind und Microsoft. MCP-Server können lokal (stdio) oder remote (HTTP) betrieben werden. Dieser Vault läuft als <strong>HTTP-Server</strong> und ist damit von jedem MCP-kompatiblen Client aus erreichbar.</p>
+      <p>Inzwischen unterstützen alle großen KI-Anbieter MCP – darunter OpenAI, Google DeepMind und Microsoft. MCP-Server können lokal (stdio) oder remote (HTTP) betrieben werden. Dieser Vault läuft als <strong>HTTP-Server</strong> und ist damit von jedem MCP-kompatiblen Client erreichbar.</p>
     </section>
 
     <section id="api-token">
       <h2>Schritt 1 – API-Token generieren</h2>
-      <p>Generiere einen langlebigen Token (1 Jahr Laufzeit), den du in deiner Agent-Konfiguration hinterlegst. Der Token wird mit deinen Rechten ausgestellt – du siehst nur Notizen, auf die dein Account Zugriff hat.</p>
+      <p>Generieren Sie einen langlebigen Token (1 Jahr Laufzeit), den Sie in Ihrer Agent-Konfiguration hinterlegen. Der Token wird mit Ihren Rechten ausgestellt – Sie sehen nur Notizen, auf die Ihr Account Zugriff hat.</p>
 
       <div style="margin:1.2rem 0">
         <button id="gen-token-btn" class="btn-mcp-primary" onclick="generateToken()">
@@ -37,7 +37,7 @@
       </div>
 
       <div id="token-result" style="display:none">
-        <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">Bewahre diesen Token sicher auf – er wird nicht gespeichert.</p>
+        <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">Bitte bewahren Sie diesen Token sicher auf – er wird nicht gespeichert.</p>
         <div class="token-box">
           <code id="token-value" style="word-break:break-all;font-size:.8rem;color:#8839ef"></code>
           <button class="copy-btn" onclick="copyToken()" title="Kopieren">
@@ -50,7 +50,7 @@
 
     <section id="agent-setup">
       <h2>Schritt 2 – Agent konfigurieren</h2>
-      <p>Wähle deinen KI-Assistenten und folge der Anleitung. Der generierte Token aus Schritt 1 wird in allen Fällen benötigt.</p>
+      <p>Wählen Sie Ihren KI-Assistenten und folgen Sie der jeweiligen Anleitung. Der in Schritt 1 generierte Token wird in allen Fällen benötigt.</p>
 
       <div class="accordion">
 
@@ -62,12 +62,12 @@
             <span class="acc-badge">Empfohlen</span>
           </summary>
           <div class="accordion-body">
-            <p>Öffne deine Claude-Desktop-Konfigurationsdatei:</p>
+            <p>Öffnen Sie Ihre Claude-Desktop-Konfigurationsdatei:</p>
             <ul>
               <li><strong>macOS:</strong> <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></li>
               <li><strong>Windows:</strong> <code>%APPDATA%\Claude\claude_desktop_config.json</code></li>
             </ul>
-            <p>Füge folgenden Eintrag in den <code>mcpServers</code>-Block ein:</p>
+            <p>Fügen Sie folgenden Eintrag in den <code>mcpServers</code>-Block ein:</p>
             <div class="code-block-wrapper">
               <button class="copy-code-btn" onclick="copyConfig('claude-config')" title="Kopieren">Kopieren</button>
               <pre id="claude-config"><code>{
@@ -75,13 +75,13 @@
     "obsidian-vault": {
       "url": "{{ base_url }}/mcp",
       "headers": {
-        "Authorization": "Bearer DEIN_TOKEN"
+        "Authorization": "Bearer IHR_TOKEN"
       }
     }
   }
 }</code></pre>
             </div>
-            <p>Claude Desktop neu starten. Der Vault erscheint danach als verfügbares Tool.</p>
+            <p>Starten Sie Claude Desktop neu. Der Vault erscheint danach als verfügbares Tool.</p>
           </div>
         </details>
 
@@ -92,12 +92,12 @@
             OpenAI ChatGPT Desktop
           </summary>
           <div class="accordion-body">
-            <p>ChatGPT Desktop (ab Version 1.2025.x) unterstützt MCP-Server. Öffne die Konfigurationsdatei:</p>
+            <p>ChatGPT Desktop (ab Version 1.2025.x) unterstützt MCP-Server. Öffnen Sie die Konfigurationsdatei:</p>
             <ul>
               <li><strong>macOS:</strong> <code>~/Library/Application Support/com.openai.chat/mcp.json</code></li>
               <li><strong>Windows:</strong> <code>%APPDATA%\OpenAI\ChatGPT\mcp.json</code></li>
             </ul>
-            <p>Erstelle oder ergänze die Datei mit:</p>
+            <p>Erstellen oder ergänzen Sie die Datei mit:</p>
             <div class="code-block-wrapper">
               <button class="copy-code-btn" onclick="copyConfig('openai-config')" title="Kopieren">Kopieren</button>
               <pre id="openai-config"><code>{
@@ -105,13 +105,13 @@
     "obsidian-vault": {
       "url": "{{ base_url }}/mcp",
       "headers": {
-        "Authorization": "Bearer DEIN_TOKEN"
+        "Authorization": "Bearer IHR_TOKEN"
       }
     }
   }
 }</code></pre>
             </div>
-            <p>ChatGPT neu starten. Der Vault ist dann als Tool in Gesprächen verfügbar.</p>
+            <p>Starten Sie ChatGPT neu. Der Vault steht dann als Tool in Gesprächen zur Verfügung.</p>
           </div>
         </details>
 
@@ -124,13 +124,13 @@
           <div class="accordion-body">
             <p>Für Microsoft 365 Copilot wird ein eigener <strong>Copilot Studio Connector</strong> benötigt:</p>
             <ol>
-              <li>Öffne <a href="https://copilotstudio.microsoft.com" target="_blank" rel="noopener">Copilot Studio</a> und wähle deinen Copilot.</li>
-              <li>Gehe zu <strong>Einstellungen → Aktionen → Connector hinzufügen</strong>.</li>
-              <li>Wähle <strong>Benutzerdefinierter Connector</strong> und trage ein:
+              <li>Öffnen Sie <a href="https://copilotstudio.microsoft.com" target="_blank" rel="noopener">Copilot Studio</a> und wählen Sie Ihren Copilot.</li>
+              <li>Navigieren Sie zu <strong>Einstellungen → Aktionen → Connector hinzufügen</strong>.</li>
+              <li>Wählen Sie <strong>Benutzerdefinierter Connector</strong> und tragen Sie ein:
                 <ul style="margin-top:.4rem">
                   <li><strong>Endpunkt:</strong> <code>{{ base_url }}/mcp</code></li>
                   <li><strong>Authentifizierung:</strong> API-Key / Bearer Token</li>
-                  <li><strong>Header:</strong> <code>Authorization: Bearer DEIN_TOKEN</code></li>
+                  <li><strong>Header:</strong> <code>Authorization: Bearer IHR_TOKEN</code></li>
                 </ul>
               </li>
               <li>Speichern und Copilot neu deployen.</li>
@@ -146,7 +146,7 @@
             Google Gemini CLI
           </summary>
           <div class="accordion-body">
-            <p>Das <a href="https://github.com/google-gemini/gemini-cli" target="_blank" rel="noopener">Gemini CLI</a> (Open Source, lokal installierbar) unterstützt MCP-Server ab Version 0.1.x. Konfigurationsdatei:</p>
+            <p>Das <a href="https://github.com/google-gemini/gemini-cli" target="_blank" rel="noopener">Gemini CLI</a> (Open Source, lokal installierbar) unterstützt MCP-Server ab Version 0.1.x. Öffnen Sie die Konfigurationsdatei:</p>
             <ul>
               <li><strong>macOS/Linux:</strong> <code>~/.gemini/settings.json</code></li>
               <li><strong>Windows:</strong> <code>%USERPROFILE%\.gemini\settings.json</code></li>
@@ -158,13 +158,13 @@
     "obsidian-vault": {
       "httpUrl": "{{ base_url }}/mcp",
       "headers": {
-        "Authorization": "Bearer DEIN_TOKEN"
+        "Authorization": "Bearer IHR_TOKEN"
       }
     }
   }
 }</code></pre>
             </div>
-            <p>Im Terminal starten mit: <code>gemini</code> – der Vault erscheint danach als Tool.</p>
+            <p>Starten Sie das Terminal und führen Sie <code>gemini</code> aus – der Vault erscheint danach als Tool.</p>
           </div>
         </details>
 
@@ -178,17 +178,17 @@
           <div class="accordion-body">
             <p>LM Studio unterstützt MCP-Server ab Version 0.3.x über die Agenten-Funktion:</p>
             <ol>
-              <li>Öffne LM Studio und wechsle zum Tab <strong>Agent</strong>.</li>
-              <li>Klicke auf <strong>MCP Servers → Add Server</strong>.</li>
-              <li>Wähle den Typ <strong>HTTP (Streamable)</strong> und trage ein:
+              <li>Öffnen Sie LM Studio und wechseln Sie zum Tab <strong>Agent</strong>.</li>
+              <li>Klicken Sie auf <strong>MCP Servers → Add Server</strong>.</li>
+              <li>Wählen Sie den Typ <strong>HTTP (Streamable)</strong> und tragen Sie ein:
                 <ul style="margin-top:.4rem">
                   <li><strong>URL:</strong> <code>{{ base_url }}/mcp</code></li>
-                  <li><strong>Header:</strong> <code>Authorization</code> → <code>Bearer DEIN_TOKEN</code></li>
+                  <li><strong>Header:</strong> <code>Authorization</code> → <code>Bearer IHR_TOKEN</code></li>
                 </ul>
               </li>
               <li>Verbindung testen und speichern.</li>
             </ol>
-            <p style="color:var(--text-muted);font-size:.85rem">LM Studio läuft vollständig lokal – deine Anfragen verlassen das Gerät nicht (außer für den Datenzugriff auf den Vault-Server).</p>
+            <p style="color:var(--text-muted);font-size:.85rem">LM Studio läuft vollständig lokal – Ihre Anfragen verlassen das Gerät nicht (außer für den Datenzugriff auf den Vault-Server).</p>
           </div>
         </details>
 
@@ -200,17 +200,17 @@
             <span class="acc-badge acc-badge-local">Lokal</span>
           </summary>
           <div class="accordion-body">
-            <p>Ollama selbst ist nur ein Modell-Runner ohne MCP-Client. Du benötigst ein Frontend, das MCP unterstützt – zum Beispiel <a href="https://github.com/open-webui/open-webui" target="_blank" rel="noopener">Open WebUI</a>:</p>
+            <p>Ollama selbst ist nur ein Modell-Runner ohne MCP-Client. Sie benötigen ein Frontend, das MCP unterstützt – zum Beispiel <a href="https://github.com/open-webui/open-webui" target="_blank" rel="noopener">Open WebUI</a>:</p>
             <ol>
-              <li>Open WebUI installieren (z. B. via Docker oder <code>pip install open-webui</code>).</li>
-              <li>In Open WebUI: <strong>Einstellungen → Tools → MCP Servers</strong>.</li>
-              <li>Neuen Server anlegen:
+              <li>Installieren Sie Open WebUI (z. B. via Docker oder <code>pip install open-webui</code>).</li>
+              <li>Navigieren Sie in Open WebUI zu <strong>Einstellungen → Tools → MCP Servers</strong>.</li>
+              <li>Legen Sie einen neuen Server an:
                 <ul style="margin-top:.4rem">
                   <li><strong>URL:</strong> <code>{{ base_url }}/mcp</code></li>
-                  <li><strong>Header:</strong> <code>Authorization: Bearer DEIN_TOKEN</code></li>
+                  <li><strong>Header:</strong> <code>Authorization: Bearer IHR_TOKEN</code></li>
                 </ul>
               </li>
-              <li>Im Chat-Fenster den Vault als Tool aktivieren.</li>
+              <li>Aktivieren Sie den Vault im Chat-Fenster als Tool.</li>
             </ol>
             <p style="color:var(--text-muted);font-size:.85rem">Alternativ: <strong>mcpx</strong> als CLI-Proxy (<code>npx @modelcontextprotocol/inspector</code>) oder <strong>Msty</strong> als Desktop-App mit MCP-Unterstützung.</p>
           </div>
@@ -223,19 +223,19 @@
             Anderer Agent (allgemein)
           </summary>
           <div class="accordion-body">
-            <p>Jeder MCP-kompatible Client kann diesen Vault einbinden. Der Server verwendet den <strong>HTTP-Transport</strong> (Streamable HTTP / SSE) – kein stdio. Du benötigst folgende Angaben:</p>
+            <p>Jeder MCP-kompatible Client kann diesen Vault einbinden. Der Server verwendet den <strong>HTTP-Transport</strong> (Streamable HTTP / SSE) – kein stdio. Sie benötigen folgende Angaben:</p>
             <table class="param-table">
               <tr><td><strong>Endpunkt</strong></td><td><code>{{ base_url }}/mcp</code></td></tr>
               <tr><td><strong>Transport</strong></td><td>HTTP POST (JSON-RPC 2.0)</td></tr>
-              <tr><td><strong>Auth</strong></td><td><code>Authorization: Bearer DEIN_TOKEN</code> (Header)</td></tr>
+              <tr><td><strong>Auth</strong></td><td><code>Authorization: Bearer IHR_TOKEN</code> (Header)</td></tr>
               <tr><td><strong>Protokoll</strong></td><td>MCP 2024-11-05</td></tr>
             </table>
-            <p style="margin-top:.8rem">Zum Testen der Verbindung kannst du auch den <a href="https://github.com/modelcontextprotocol/inspector" target="_blank" rel="noopener">MCP Inspector</a> verwenden:</p>
+            <p style="margin-top:.8rem">Zum Testen der Verbindung können Sie auch den <a href="https://github.com/modelcontextprotocol/inspector" target="_blank" rel="noopener">MCP Inspector</a> verwenden:</p>
             <div class="code-block-wrapper">
               <button class="copy-code-btn" onclick="copyConfig('generic-config')" title="Kopieren">Kopieren</button>
               <pre id="generic-config"><code>npx @modelcontextprotocol/inspector \
   --url {{ base_url }}/mcp \
-  --header "Authorization: Bearer DEIN_TOKEN"</code></pre>
+  --header "Authorization: Bearer IHR_TOKEN"</code></pre>
             </div>
           </div>
         </details>
@@ -245,7 +245,7 @@
 
     <section id="verfuegbare-tools">
       <h2>Schritt 3 – Verfügbare Tools</h2>
-      <p>Nach der Verbindung stehen folgende Tools zur Verfügung:</p>
+      <p>Nach der Verbindung stehen Ihnen folgende Tools zur Verfügung:</p>
 
       <div class="tools-grid">
         <div class="tool-card">
@@ -282,19 +282,19 @@
         </div>
       </div>
 
-      <p style="margin-top:1rem;color:var(--text-muted);font-size:.85rem">Gruppenrechte werden automatisch angewendet – der Agent sieht nur Notizen, auf die dein Account Zugriff hat.</p>
+      <p style="margin-top:1rem;color:var(--text-muted);font-size:.85rem">Gruppenrechte werden automatisch angewendet – der Agent sieht nur Notizen, auf die Ihr Account Zugriff hat.</p>
     </section>
 
     <section id="beispiel-prompts">
       <h2>Beispiel-Prompts</h2>
-      <p style="color:var(--text-muted);font-size:.88rem;margin-bottom:.75rem">Nützliche Fragen für die Arbeit mit fremden Inhalten – wenn du den Vault nicht selbst erstellt hast:</p>
+      <p style="color:var(--text-muted);font-size:.88rem;margin-bottom:.75rem">Nützliche Fragen für die Arbeit mit fremden Inhalten – wenn Sie den Vault nicht selbst erstellt haben:</p>
       <ul class="prompt-list">
-        <li>„Welche Themen oder Fachbereiche sind in diesem Vault vorhanden? Gib mir einen Überblick."</li>
-        <li>„Erkläre mir das Konzept <em>[Begriff]</em> anhand der Notizen in diesem Vault."</li>
+        <li>„Welche Themen oder Fachbereiche sind in diesem Vault vorhanden? Bitte geben Sie mir einen Überblick."</li>
+        <li>„Erklären Sie mir das Konzept <em>[Begriff]</em> anhand der Notizen in diesem Vault."</li>
         <li>„Gibt es in den Notizen Verbindungen zwischen <em>[Thema A]</em> und <em>[Thema B]</em>?"</li>
-        <li>„Fasse alle Notizen mit dem Tag <em>#[Tag]</em> in einer strukturierten Übersicht zusammen."</li>
+        <li>„Fassen Sie alle Notizen mit dem Tag <em>#[Tag]</em> in einer strukturierten Übersicht zusammen."</li>
         <li>„Welche Quellen, Literatur oder weiterführenden Hinweise werden in den Notizen über <em>[Thema]</em> erwähnt?"</li>
-        <li>„Erstelle eine Lernzusammenfassung zu <em>[Thema]</em> aus den vorhandenen Notizen."</li>
+        <li>„Erstellen Sie eine Lernzusammenfassung zu <em>[Thema]</em> aus den vorhandenen Notizen."</li>
         <li>„Wo gibt es in den Notizen inhaltliche Widersprüche oder offene Fragen zu <em>[Thema]</em>?"</li>
       </ul>
     </section>
@@ -478,7 +478,7 @@ function copyToken() {
 function copyConfig(id) {
   const el = document.getElementById(id);
   let text = el.textContent;
-  if (currentToken) text = text.replace('DEIN_TOKEN', currentToken);
+  if (currentToken) text = text.replace('IHR_TOKEN', currentToken);
   navigator.clipboard.writeText(text);
   const btn = el.closest('.code-block-wrapper').querySelector('.copy-code-btn');
   const orig = btn.textContent;
