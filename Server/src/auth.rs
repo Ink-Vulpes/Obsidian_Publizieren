@@ -86,9 +86,14 @@ impl From<Claims> for CurrentUser {
 
 impl CurrentUser {
     pub fn can_see_group_note(&self, required_groups: &[String]) -> bool {
-        if self.is_admin || required_groups.is_empty() {
+        if self.is_admin {
             return true;
         }
+        if self.groups.is_empty() {
+            // User is not in any group — no group restriction applies
+            return true;
+        }
+        // User is in at least one group: they may only see notes their groups cover
         required_groups.iter().any(|g| self.groups.contains(g))
     }
 }

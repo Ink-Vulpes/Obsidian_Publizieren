@@ -2,9 +2,11 @@ name: Build & Publish Docker Image
 
 on:
   push:
+    branches:
+      - master
     tags:
-      - 'server-v*'   # trigger: git tag server-v1.2.3 && git push --tags
-  workflow_dispatch: # manual trigger
+      - 'server-v*'
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io

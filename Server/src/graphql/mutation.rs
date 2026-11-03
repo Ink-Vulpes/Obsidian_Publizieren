@@ -242,6 +242,7 @@ impl MutationRoot {
         let state = ctx.data::<AppState>()?;
         crate::db::delete_group(&state.db, id).await
             .map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        crate::reload_vault(state).await;
         Ok(true)
     }
 
