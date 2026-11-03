@@ -104,6 +104,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
         include_str!("../migrations/007_proposals.sql"),
         include_str!("../migrations/008_group_query.sql"),
         include_str!("../migrations/009_mcp_permission.sql"),
+        include_str!("../migrations/010_mcp_tokens.sql"),
     ] {
         for stmt in sql.split(";\n") {
             let s = stmt.trim();
@@ -435,6 +436,51 @@ pub async fn delete_vault_file(pool: &MySqlPool, path: &str) -> anyhow::Result<(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+// ── MCP Tokens ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct McpToken {
+    pub id: u32,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn create_mcp_token(
+    pool: &MySqlPool,
+    user_id: u32,
+    name: &str,
+    token_hash: &str,
+) -> anyhow::Result<u32> {
+    let res = sqlx::query(
+        "INSERT INTO mcp_tokens (user_id, name, token_hash) VALUES (?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(name)
+    .bind(token_hash)
+    .execute(pool)
+    .await?;
+    Ok(res.last_insert_id() as u32)
+}
+
+pub async fn list_mcp_tokens(pool: &MySqlPool, user_id: u32) -> anyhow::Result<Vec<McpToken>> {
+    let rows: Vec<McpToken> = sqlx::query_as(
+        "SELECT id, name, created_at FROM mcp_tokens WHERE user_id = ? ORDER BY created_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn delete_mcp_token(pool: &MySqlPool, id: u32, user_id: u32) -> anyhow::Result<bool> {
+    let res = sqlx::query("DELETE FROM mcp_tokens WHERE id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected() > 0)
 }
 
 // ── Sync devices ─────────────────────────────────────────────────────────────

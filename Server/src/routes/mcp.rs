@@ -1,10 +1,11 @@
 use axum::{
-    extract::{Extension, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::{auth::CurrentUser, routes::api::note_visible, AppState};
 
@@ -31,14 +32,28 @@ pub async fn mcp_setup_page(
 
 // ── Token generation (long-lived API token for MCP) ───────────────────────────
 
+#[derive(Deserialize)]
+pub struct GenerateTokenRequest {
+    pub name: String,
+}
+
 pub async fn generate_mcp_token(
     State(state): State<AppState>,
     Extension(current_user): Extension<CurrentUser>,
+    Json(body): Json<GenerateTokenRequest>,
 ) -> Response {
     if !current_user.can_use_mcp && !current_user.is_admin {
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"error": "Kein MCP-Zugriff"})),
+        ).into_response();
+    }
+
+    let name = body.name.trim().to_string();
+    if name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Token-Name darf nicht leer sein"})),
         ).into_response();
     }
 
@@ -79,11 +94,54 @@ pub async fn generate_mcp_token(
         }
     };
 
+    let hash = hex::encode(Sha256::digest(token.as_bytes()));
+    if let Err(e) = crate::db::create_mcp_token(&state.db, current_user.id, &name, &hash).await {
+        tracing::error!("create_mcp_token DB: {}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Datenbankfehler beim Speichern des Tokens"})),
+        ).into_response();
+    }
+
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(8760);
     Json(serde_json::json!({
         "token": token,
         "expires_at": expires_at.to_rfc3339(),
     })).into_response()
+}
+
+pub async fn list_mcp_tokens(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.can_use_mcp && !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Kein MCP-Zugriff"}))).into_response();
+    }
+    match crate::db::list_mcp_tokens(&state.db, current_user.id).await {
+        Ok(tokens) => Json(serde_json::json!({"tokens": tokens})).into_response(),
+        Err(e) => {
+            tracing::error!("list_mcp_tokens: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Datenbankfehler"}))).into_response()
+        }
+    }
+}
+
+pub async fn delete_mcp_token_handler(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Path(id): Path<u32>,
+) -> Response {
+    if !current_user.can_use_mcp && !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Kein MCP-Zugriff"}))).into_response();
+    }
+    match crate::db::delete_mcp_token(&state.db, id, current_user.id).await {
+        Ok(true) => Json(serde_json::json!({"ok": true})).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Token nicht gefunden"}))).into_response(),
+        Err(e) => {
+            tracing::error!("delete_mcp_token: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Datenbankfehler"}))).into_response()
+        }
+    }
 }
 
 // ── MCP JSON-RPC 2.0 Endpoint ─────────────────────────────────────────────────

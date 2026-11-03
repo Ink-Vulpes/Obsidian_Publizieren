@@ -160,6 +160,8 @@ async fn main() -> anyhow::Result<()> {
         // MCP setup page and API endpoint
         .route("/mcp-setup", get(routes::mcp::mcp_setup_page))
         .route("/mcp-setup/token", post(routes::mcp::generate_mcp_token))
+        .route("/mcp-setup/tokens", get(routes::mcp::list_mcp_tokens))
+        .route("/mcp-setup/tokens/:id", axum::routing::delete(routes::mcp::delete_mcp_token_handler))
         .route("/mcp", post(routes::mcp::mcp_handler))
         // Proposal pages
         .route("/propose/*slug", get(routes::proposals::propose_page))
