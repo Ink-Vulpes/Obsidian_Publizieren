@@ -136,4 +136,95 @@ impl QueryRoot {
             groups: nm.groups.unwrap_or_default(),
         }).collect())
     }
+
+    /// Sucht Notizen anhand von Volltext, Tags und/oder Frontmatter-Feldern.
+    /// Alle angegebenen Filter werden mit UND verknüpft;
+    /// mehrere `tags` werden mit ODER verknüpft (mind. eines muss passen).
+    async fn search_notes(
+        &self,
+        ctx: &Context<'_>,
+        text: Option<String>,
+        tags: Option<Vec<String>>,
+        metadata: Option<Vec<MetadataFilterInput>>,
+        #[graphql(default = 50)] limit: i32,
+    ) -> Result<Vec<NoteSearchResultGql>> {
+        let user = get_user(ctx)?;
+        let state = ctx.data::<AppState>()?;
+        let vault = state.vault.read().await;
+
+        let text_lc = text.as_deref().map(str::to_lowercase);
+        let tags_lc: Option<Vec<String>> = tags.map(|ts| ts.iter().map(|t| t.to_lowercase()).collect());
+
+        let mut results: Vec<NoteSearchResultGql> = vec![];
+
+        'outer: for note in vault.notes.values() {
+            if !crate::routes::api::note_visible(note, &user, state) { continue; }
+
+            // Text filter
+            if let Some(q) = &text_lc {
+                let in_title = note.title.to_lowercase().contains(q.as_str());
+                let in_body = vault.search_index.get(&note.slug)
+                    .map(|t| t.to_lowercase().contains(q.as_str()))
+                    .unwrap_or(false);
+                if !in_title && !in_body { continue; }
+            }
+
+            // Tags filter (any match)
+            if let Some(filter_tags) = &tags_lc {
+                if !filter_tags.is_empty() {
+                    let note_tags_lc: Vec<String> = note.tags.iter().map(|t| t.to_lowercase()).collect();
+                    if !filter_tags.iter().any(|ft| note_tags_lc.contains(ft)) { continue; }
+                }
+            }
+
+            // Metadata filter (ALL must match)
+            if let Some(filters) = &metadata {
+                for mf in filters {
+                    let key_lc = mf.key.to_lowercase();
+                    match note.frontmatter.iter().find(|(k, _)| k.to_lowercase() == key_lc) {
+                        None => continue 'outer,
+                        Some((_, v)) => {
+                            if let Some(expected) = &mf.value {
+                                if !v.to_lowercase().contains(&expected.to_lowercase()) {
+                                    continue 'outer;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let excerpt = if let Some(q) = &text_lc {
+                vault.search_index.get(&note.slug).map(|t| {
+                    if let Some(pos) = t.to_lowercase().find(q.as_str()) {
+                        let start = pos.saturating_sub(100);
+                        let end = (pos + q.len() + 100).min(t.len());
+                        format!("…{}…", &t[start..end])
+                    } else {
+                        t.chars().take(200).collect::<String>()
+                    }
+                })
+            } else {
+                vault.search_index.get(&note.slug).map(|t| t.chars().take(200).collect())
+            };
+
+            let mut fm: Vec<FrontmatterEntryGql> = note.frontmatter.iter()
+                .map(|(k, v)| FrontmatterEntryGql { key: k.clone(), value: v.clone() })
+                .collect();
+            fm.sort_by(|a, b| a.key.cmp(&b.key));
+
+            results.push(NoteSearchResultGql {
+                slug: note.slug.clone(),
+                title: note.title.clone(),
+                tags: note.tags.clone(),
+                frontmatter: fm,
+                excerpt,
+            });
+
+            if results.len() >= limit as usize { break; }
+        }
+
+        results.sort_by(|a, b| a.slug.cmp(&b.slug));
+        Ok(results)
+    }
 }

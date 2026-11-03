@@ -166,3 +166,30 @@ pub struct NoteMeta {
     pub slug: String,
     pub groups: Vec<String>,
 }
+
+#[derive(SimpleObject)]
+#[graphql(rename_fields = "snake_case")]
+pub struct FrontmatterEntryGql {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(SimpleObject)]
+#[graphql(rename_fields = "snake_case")]
+pub struct NoteSearchResultGql {
+    pub slug: String,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub frontmatter: Vec<FrontmatterEntryGql>,
+    pub excerpt: Option<String>,
+}
+
+#[derive(InputObject)]
+#[graphql(rename_fields = "snake_case")]
+pub struct MetadataFilterInput {
+    /// Frontmatter-Schlüssel (Groß-/Kleinschreibung wird ignoriert).
+    pub key: String,
+    /// Optionaler Wert — fehlt er, wird nur geprüft ob der Schlüssel vorhanden ist.
+    /// Enthält der Wert den Suchstring (case-insensitiv), gilt die Bedingung als erfüllt.
+    pub value: Option<String>,
+}

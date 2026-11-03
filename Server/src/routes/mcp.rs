@@ -183,6 +183,29 @@ fn handle_tools_list(id: &Option<Value>) -> JsonRpcResponse {
                         "limit": { "type": "integer", "description": "Max. Anzahl (Standard: 100)" }
                     }
                 }
+            },
+            {
+                "name": "search_by_metadata",
+                "description": "Sucht Notizen anhand von Frontmatter-Metadaten und/oder Tags. Nützlich um z.B. alle Notizen eines bestimmten Typs, Autors oder Status zu finden.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": "Frontmatter-Schlüssel, nach dem gesucht wird (z.B. 'status', 'author', 'type')"
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "Optionaler Wert – fehlt er, wird nur geprüft ob der Schlüssel vorhanden ist. Teilstring-Suche (case-insensitiv)."
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optionale Tag-Filter – mind. einer muss vorhanden sein."
+                        },
+                        "limit": { "type": "integer", "description": "Max. Anzahl (Standard: 50)" }
+                    }
+                }
             }
         ]
     }))
@@ -301,6 +324,69 @@ async fn handle_tool_call(
 
             JsonRpcResponse::ok(id.clone(), serde_json::json!({
                 "content": [{ "type": "text", "text": serde_json::to_string_pretty(&notes).unwrap_or_default() }]
+            }))
+        }
+
+        "search_by_metadata" => {
+            let key = args.get("key").and_then(|v| v.as_str()).map(str::to_lowercase);
+            let value = args.get("value").and_then(|v| v.as_str()).map(str::to_lowercase);
+            let tags_filter: Vec<String> = args.get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|t| t.as_str()).map(|t| t.to_lowercase()).collect())
+                .unwrap_or_default();
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+
+            let vault = state.vault.read().await;
+            let mut results: Vec<Value> = vec![];
+
+            'outer: for note in vault.notes.values() {
+                if !note_visible(note, user, state) { continue; }
+
+                // Tags filter (any match)
+                if !tags_filter.is_empty() {
+                    let note_tags_lc: Vec<String> = note.tags.iter().map(|t| t.to_lowercase()).collect();
+                    if !tags_filter.iter().any(|ft| note_tags_lc.contains(ft)) { continue; }
+                }
+
+                // Metadata filter
+                if let Some(k) = &key {
+                    match note.frontmatter.iter().find(|(fk, _)| fk.to_lowercase() == *k) {
+                        None => continue 'outer,
+                        Some((_, fv)) => {
+                            if let Some(expected) = &value {
+                                if !fv.to_lowercase().contains(expected.as_str()) {
+                                    continue 'outer;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let frontmatter: Vec<Value> = {
+                    let mut fm: Vec<(String, String)> = note.frontmatter.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    fm.sort_by(|a, b| a.0.cmp(&b.0));
+                    fm.into_iter().map(|(k, v)| serde_json::json!({"key": k, "value": v})).collect()
+                };
+
+                results.push(serde_json::json!({
+                    "slug": note.slug,
+                    "title": note.title,
+                    "tags": note.tags,
+                    "frontmatter": frontmatter,
+                }));
+
+                if results.len() >= limit { break; }
+            }
+
+            results.sort_by(|a, b| {
+                a.get("slug").and_then(|v| v.as_str())
+                    .cmp(&b.get("slug").and_then(|v| v.as_str()))
+            });
+
+            JsonRpcResponse::ok(id.clone(), serde_json::json!({
+                "content": [{ "type": "text", "text": serde_json::to_string_pretty(&results).unwrap_or_default() }]
             }))
         }
 
