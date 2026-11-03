@@ -6,19 +6,28 @@
 <article class="note-content">
   <div class="note-header">
     <h1>MCP Setup</h1>
-    <p style="color:var(--text-muted);margin-top:.25rem">KI-Zugriff auf deinen Vault via Model Context Protocol</p>
+    <p style="color:var(--text-muted);margin-top:.25rem">KI-Zugriff auf diesen Vault via Model Context Protocol</p>
   </div>
 
   <div class="note-body">
 
     <section id="was-ist-mcp">
       <h2>Was ist MCP?</h2>
-      <p>Das <strong>Model Context Protocol (MCP)</strong> ist ein offener Standard von Anthropic, der es KI-Assistenten wie Claude ermöglicht, direkt auf externe Datenquellen zuzugreifen. Mit dieser Schnittstelle kann Claude Notizen aus deinem Vault lesen, durchsuchen und für Analysen, Zusammenfassungen oder Fragen nutzen.</p>
+      <p>Das <strong>Model Context Protocol (MCP)</strong> ist ein offener Standard, der von Anthropic entwickelt und am 25. November 2024 als Open-Source-Projekt veröffentlicht wurde. Es standardisiert, wie KI-Assistenten (große Sprachmodelle) auf externe Daten und Tools zugreifen.</p>
+      <p>Vor MCP musste für jede Kombination aus KI-Modell und Datenquelle eine eigene Schnittstelle gebaut werden – das sogenannte <em>M×N-Integrationsproblem</em>. MCP löst das mit einer universellen, modellunabhängigen Schnittstelle auf Basis von JSON-RPC 2.0:</p>
+      <div class="arch-row">
+        <div class="arch-box"><strong>Host</strong><span>Dein KI-Assistent<br>(Claude, ChatGPT …)</span></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box arch-box-mid"><strong>MCP Client</strong><span>Eingebaut im Host</span></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box arch-box-accent"><strong>MCP Server</strong><span>Dieser Vault<br>(/mcp Endpunkt)</span></div>
+      </div>
+      <p>Inzwischen unterstützen alle großen KI-Anbieter MCP – darunter OpenAI, Google DeepMind und Microsoft. MCP-Server können lokal (stdio) oder remote (HTTP) betrieben werden. Dieser Vault läuft als <strong>HTTP-Server</strong> und ist damit von jedem MCP-kompatiblen Client aus erreichbar.</p>
     </section>
 
     <section id="api-token">
       <h2>Schritt 1 – API-Token generieren</h2>
-      <p>Generiere einen langlebigen Token (1 Jahr Laufzeit), den du in deiner Claude-Desktop-Konfiguration hinterlegst. Der Token wird mit deinen Rechten ausgestellt – du siehst nur Notizen, auf die du Zugriff hast.</p>
+      <p>Generiere einen langlebigen Token (1 Jahr Laufzeit), den du in deiner Agent-Konfiguration hinterlegst. Der Token wird mit deinen Rechten ausgestellt – du siehst nur Notizen, auf die dein Account Zugriff hat.</p>
 
       <div style="margin:1.2rem 0">
         <button id="gen-token-btn" class="btn-mcp-primary" onclick="generateToken()">
@@ -39,18 +48,29 @@
       </div>
     </section>
 
-    <section id="claude-desktop">
-      <h2>Schritt 2 – Claude Desktop konfigurieren</h2>
-      <p>Öffne deine Claude Desktop Konfigurationsdatei:</p>
-      <ul>
-        <li><strong>macOS:</strong> <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></li>
-        <li><strong>Windows:</strong> <code>%APPDATA%\Claude\claude_desktop_config.json</code></li>
-      </ul>
-      <p>Füge folgenden Eintrag in den <code>mcpServers</code>-Block ein (ersetze <code>DEIN_TOKEN</code> mit dem generierten Token und passe die URL an):</p>
+    <section id="agent-setup">
+      <h2>Schritt 2 – Agent konfigurieren</h2>
+      <p>Wähle deinen KI-Assistenten und folge der Anleitung. Der generierte Token aus Schritt 1 wird in allen Fällen benötigt.</p>
 
-      <div class="code-block-wrapper">
-        <button class="copy-code-btn" onclick="copyConfig()" title="Konfiguration kopieren">Kopieren</button>
-        <pre id="config-block"><code>{
+      <div class="accordion">
+
+        <!-- Claude Desktop -->
+        <details class="accordion-item" open>
+          <summary>
+            <span class="acc-icon acc-claude">C</span>
+            Claude Desktop
+            <span class="acc-badge">Empfohlen</span>
+          </summary>
+          <div class="accordion-body">
+            <p>Öffne deine Claude-Desktop-Konfigurationsdatei:</p>
+            <ul>
+              <li><strong>macOS:</strong> <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></li>
+              <li><strong>Windows:</strong> <code>%APPDATA%\Claude\claude_desktop_config.json</code></li>
+            </ul>
+            <p>Füge folgenden Eintrag in den <code>mcpServers</code>-Block ein:</p>
+            <div class="code-block-wrapper">
+              <button class="copy-code-btn" onclick="copyConfig('claude-config')" title="Kopieren">Kopieren</button>
+              <pre id="claude-config"><code>{
   "mcpServers": {
     "obsidian-vault": {
       "url": "{{ base_url }}/mcp",
@@ -60,14 +80,172 @@
     }
   }
 }</code></pre>
-      </div>
+            </div>
+            <p>Claude Desktop neu starten. Der Vault erscheint danach als verfügbares Tool.</p>
+          </div>
+        </details>
 
-      <p>Nach dem Speichern Claude Desktop neu starten. Der Vault erscheint dann als verfügbares Tool.</p>
+        <!-- OpenAI ChatGPT -->
+        <details class="accordion-item">
+          <summary>
+            <span class="acc-icon acc-openai">G</span>
+            OpenAI ChatGPT Desktop
+          </summary>
+          <div class="accordion-body">
+            <p>ChatGPT Desktop (ab Version 1.2025.x) unterstützt MCP-Server. Öffne die Konfigurationsdatei:</p>
+            <ul>
+              <li><strong>macOS:</strong> <code>~/Library/Application Support/com.openai.chat/mcp.json</code></li>
+              <li><strong>Windows:</strong> <code>%APPDATA%\OpenAI\ChatGPT\mcp.json</code></li>
+            </ul>
+            <p>Erstelle oder ergänze die Datei mit:</p>
+            <div class="code-block-wrapper">
+              <button class="copy-code-btn" onclick="copyConfig('openai-config')" title="Kopieren">Kopieren</button>
+              <pre id="openai-config"><code>{
+  "mcpServers": {
+    "obsidian-vault": {
+      "url": "{{ base_url }}/mcp",
+      "headers": {
+        "Authorization": "Bearer DEIN_TOKEN"
+      }
+    }
+  }
+}</code></pre>
+            </div>
+            <p>ChatGPT neu starten. Der Vault ist dann als Tool in Gesprächen verfügbar.</p>
+          </div>
+        </details>
+
+        <!-- Microsoft 365 Copilot -->
+        <details class="accordion-item">
+          <summary>
+            <span class="acc-icon acc-ms">M</span>
+            Microsoft 365 Copilot
+          </summary>
+          <div class="accordion-body">
+            <p>Für Microsoft 365 Copilot wird ein eigener <strong>Copilot Studio Connector</strong> benötigt:</p>
+            <ol>
+              <li>Öffne <a href="https://copilotstudio.microsoft.com" target="_blank" rel="noopener">Copilot Studio</a> und wähle deinen Copilot.</li>
+              <li>Gehe zu <strong>Einstellungen → Aktionen → Connector hinzufügen</strong>.</li>
+              <li>Wähle <strong>Benutzerdefinierter Connector</strong> und trage ein:
+                <ul style="margin-top:.4rem">
+                  <li><strong>Endpunkt:</strong> <code>{{ base_url }}/mcp</code></li>
+                  <li><strong>Authentifizierung:</strong> API-Key / Bearer Token</li>
+                  <li><strong>Header:</strong> <code>Authorization: Bearer DEIN_TOKEN</code></li>
+                </ul>
+              </li>
+              <li>Speichern und Copilot neu deployen.</li>
+            </ol>
+            <p style="color:var(--text-muted);font-size:.85rem">Hinweis: Copilot Studio ist ein kostenpflichtiges Microsoft-Produkt. Diese Option erfordert Administratorrechte im M365-Tenant.</p>
+          </div>
+        </details>
+
+        <!-- Google Gemini -->
+        <details class="accordion-item">
+          <summary>
+            <span class="acc-icon acc-google">◆</span>
+            Google Gemini CLI
+          </summary>
+          <div class="accordion-body">
+            <p>Das <a href="https://github.com/google-gemini/gemini-cli" target="_blank" rel="noopener">Gemini CLI</a> (Open Source, lokal installierbar) unterstützt MCP-Server ab Version 0.1.x. Konfigurationsdatei:</p>
+            <ul>
+              <li><strong>macOS/Linux:</strong> <code>~/.gemini/settings.json</code></li>
+              <li><strong>Windows:</strong> <code>%USERPROFILE%\.gemini\settings.json</code></li>
+            </ul>
+            <div class="code-block-wrapper">
+              <button class="copy-code-btn" onclick="copyConfig('gemini-config')" title="Kopieren">Kopieren</button>
+              <pre id="gemini-config"><code>{
+  "mcpServers": {
+    "obsidian-vault": {
+      "httpUrl": "{{ base_url }}/mcp",
+      "headers": {
+        "Authorization": "Bearer DEIN_TOKEN"
+      }
+    }
+  }
+}</code></pre>
+            </div>
+            <p>Im Terminal starten mit: <code>gemini</code> – der Vault erscheint danach als Tool.</p>
+          </div>
+        </details>
+
+        <!-- LM Studio -->
+        <details class="accordion-item">
+          <summary>
+            <span class="acc-icon acc-local">L</span>
+            LM Studio
+            <span class="acc-badge acc-badge-local">Lokal</span>
+          </summary>
+          <div class="accordion-body">
+            <p>LM Studio unterstützt MCP-Server ab Version 0.3.x über die Agenten-Funktion:</p>
+            <ol>
+              <li>Öffne LM Studio und wechsle zum Tab <strong>Agent</strong>.</li>
+              <li>Klicke auf <strong>MCP Servers → Add Server</strong>.</li>
+              <li>Wähle den Typ <strong>HTTP (Streamable)</strong> und trage ein:
+                <ul style="margin-top:.4rem">
+                  <li><strong>URL:</strong> <code>{{ base_url }}/mcp</code></li>
+                  <li><strong>Header:</strong> <code>Authorization</code> → <code>Bearer DEIN_TOKEN</code></li>
+                </ul>
+              </li>
+              <li>Verbindung testen und speichern.</li>
+            </ol>
+            <p style="color:var(--text-muted);font-size:.85rem">LM Studio läuft vollständig lokal – deine Anfragen verlassen das Gerät nicht (außer für den Datenzugriff auf den Vault-Server).</p>
+          </div>
+        </details>
+
+        <!-- Ollama -->
+        <details class="accordion-item">
+          <summary>
+            <span class="acc-icon acc-local">O</span>
+            Ollama (mit Open WebUI)
+            <span class="acc-badge acc-badge-local">Lokal</span>
+          </summary>
+          <div class="accordion-body">
+            <p>Ollama selbst ist nur ein Modell-Runner ohne MCP-Client. Du benötigst ein Frontend, das MCP unterstützt – zum Beispiel <a href="https://github.com/open-webui/open-webui" target="_blank" rel="noopener">Open WebUI</a>:</p>
+            <ol>
+              <li>Open WebUI installieren (z. B. via Docker oder <code>pip install open-webui</code>).</li>
+              <li>In Open WebUI: <strong>Einstellungen → Tools → MCP Servers</strong>.</li>
+              <li>Neuen Server anlegen:
+                <ul style="margin-top:.4rem">
+                  <li><strong>URL:</strong> <code>{{ base_url }}/mcp</code></li>
+                  <li><strong>Header:</strong> <code>Authorization: Bearer DEIN_TOKEN</code></li>
+                </ul>
+              </li>
+              <li>Im Chat-Fenster den Vault als Tool aktivieren.</li>
+            </ol>
+            <p style="color:var(--text-muted);font-size:.85rem">Alternativ: <strong>mcpx</strong> als CLI-Proxy (<code>npx @modelcontextprotocol/inspector</code>) oder <strong>Msty</strong> als Desktop-App mit MCP-Unterstützung.</p>
+          </div>
+        </details>
+
+        <!-- Allgemein -->
+        <details class="accordion-item">
+          <summary>
+            <span class="acc-icon acc-generic">?</span>
+            Anderer Agent (allgemein)
+          </summary>
+          <div class="accordion-body">
+            <p>Jeder MCP-kompatible Client kann diesen Vault einbinden. Der Server verwendet den <strong>HTTP-Transport</strong> (Streamable HTTP / SSE) – kein stdio. Du benötigst folgende Angaben:</p>
+            <table class="param-table">
+              <tr><td><strong>Endpunkt</strong></td><td><code>{{ base_url }}/mcp</code></td></tr>
+              <tr><td><strong>Transport</strong></td><td>HTTP POST (JSON-RPC 2.0)</td></tr>
+              <tr><td><strong>Auth</strong></td><td><code>Authorization: Bearer DEIN_TOKEN</code> (Header)</td></tr>
+              <tr><td><strong>Protokoll</strong></td><td>MCP 2024-11-05</td></tr>
+            </table>
+            <p style="margin-top:.8rem">Zum Testen der Verbindung kannst du auch den <a href="https://github.com/modelcontextprotocol/inspector" target="_blank" rel="noopener">MCP Inspector</a> verwenden:</p>
+            <div class="code-block-wrapper">
+              <button class="copy-code-btn" onclick="copyConfig('generic-config')" title="Kopieren">Kopieren</button>
+              <pre id="generic-config"><code>npx @modelcontextprotocol/inspector \
+  --url {{ base_url }}/mcp \
+  --header "Authorization: Bearer DEIN_TOKEN"</code></pre>
+            </div>
+          </div>
+        </details>
+
+      </div><!-- /accordion -->
     </section>
 
     <section id="verfuegbare-tools">
       <h2>Schritt 3 – Verfügbare Tools</h2>
-      <p>Nach der Verbindung stehen Claude folgende Tools zur Verfügung:</p>
+      <p>Nach der Verbindung stehen folgende Tools zur Verfügung:</p>
 
       <div class="tools-grid">
         <div class="tool-card">
@@ -77,7 +255,7 @@
           <div>
             <strong>search_notes</strong>
             <p>Volltextsuche über Titel und Inhalt aller Notizen. Gibt bis zu 20 Treffer mit Auszug zurück.</p>
-            <code style="font-size:.75rem">search_notes(query: "Zellbiologie")</code>
+            <code style="font-size:.75rem">search_notes(query: "Photosynthese")</code>
           </div>
         </div>
 
@@ -88,7 +266,7 @@
           <div>
             <strong>read_note</strong>
             <p>Liest den vollständigen Markdown-Inhalt einer Notiz anhand ihres Slugs.</p>
-            <code style="font-size:.75rem">read_note(slug: "01 MOC/Index")</code>
+            <code style="font-size:.75rem">read_note(slug: "Biologie/Mitose")</code>
           </div>
         </div>
 
@@ -104,16 +282,20 @@
         </div>
       </div>
 
-      <p style="margin-top:1rem;color:var(--text-muted);font-size:.85rem">Die Gruppenrechte werden automatisch angewendet – Claude sieht nur Notizen, auf die dein Account Zugriff hat.</p>
+      <p style="margin-top:1rem;color:var(--text-muted);font-size:.85rem">Gruppenrechte werden automatisch angewendet – der Agent sieht nur Notizen, auf die dein Account Zugriff hat.</p>
     </section>
 
     <section id="beispiel-prompts">
-      <h2>Beispiel-Prompts für Claude</h2>
-      <ul>
-        <li>„Fasse alle Notizen über Zellbiologie zusammen."</li>
-        <li>„Welche Notizen haben das Tag #Abitur?"</li>
-        <li>„Erkläre mir den Inhalt der Notiz <em>Mitose</em>."</li>
-        <li>„Was sind die Verbindungen zwischen meinen Notizen über Photosynthese?"</li>
+      <h2>Beispiel-Prompts</h2>
+      <p style="color:var(--text-muted);font-size:.88rem;margin-bottom:.75rem">Nützliche Fragen für die Arbeit mit fremden Inhalten – wenn du den Vault nicht selbst erstellt hast:</p>
+      <ul class="prompt-list">
+        <li>„Welche Themen oder Fachbereiche sind in diesem Vault vorhanden? Gib mir einen Überblick."</li>
+        <li>„Erkläre mir das Konzept <em>[Begriff]</em> anhand der Notizen in diesem Vault."</li>
+        <li>„Gibt es in den Notizen Verbindungen zwischen <em>[Thema A]</em> und <em>[Thema B]</em>?"</li>
+        <li>„Fasse alle Notizen mit dem Tag <em>#[Tag]</em> in einer strukturierten Übersicht zusammen."</li>
+        <li>„Welche Quellen, Literatur oder weiterführenden Hinweise werden in den Notizen über <em>[Thema]</em> erwähnt?"</li>
+        <li>„Erstelle eine Lernzusammenfassung zu <em>[Thema]</em> aus den vorhandenen Notizen."</li>
+        <li>„Wo gibt es in den Notizen inhaltliche Widersprüche oder offene Fragen zu <em>[Thema]</em>?"</li>
       </ul>
     </section>
 
@@ -126,11 +308,21 @@
 .note-body section { margin-bottom: 2.5rem; }
 .note-body h2 { font-size: 1.2rem; margin-bottom: .75rem; color: var(--text-primary); }
 .note-body p, .note-body li { color: var(--text-secondary); line-height: 1.7; }
-.note-body ul { padding-left: 1.4rem; }
-.note-body code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; font-family: 'Source Code Pro', monospace; font-size: .88em; color: var(--accent); }
+.note-body ul, .note-body ol { padding-left: 1.4rem; }
+.note-body code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; font-family: 'Source Code Pro', monospace; font-size: .88em; color: var(--text-secondary); }
 .note-body pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; margin: .75rem 0; }
 .note-body pre code { background: none; padding: 0; color: var(--text-secondary); font-size: .85rem; }
 
+/* Architecture diagram */
+.arch-row { display: flex; align-items: center; gap: .5rem; margin: 1rem 0; flex-wrap: wrap; }
+.arch-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .9rem; text-align: center; min-width: 100px; }
+.arch-box strong { display: block; font-size: .85rem; }
+.arch-box span { font-size: .72rem; color: var(--text-muted); display: block; margin-top: .15rem; }
+.arch-box-accent { border-color: #8839ef; background: rgba(136,57,239,.06); }
+.arch-box-accent strong { color: #8839ef; }
+.arch-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+/* Primary button */
 .btn-mcp-primary {
   display: inline-flex; align-items: center; gap: .5rem;
   background: #8839ef; color: #fff; border: none; border-radius: 8px;
@@ -140,6 +332,7 @@
 .btn-mcp-primary:hover { opacity: .85; }
 .btn-mcp-primary:disabled { opacity: .5; cursor: not-allowed; }
 
+/* Token box */
 .token-box {
   display: flex; align-items: flex-start; gap: .6rem;
   background: var(--code-bg); border: 1px solid #8839ef; border-radius: 8px;
@@ -152,6 +345,7 @@
 }
 .copy-btn:hover { background: var(--surface-hover); }
 
+/* Code block with copy button */
 .code-block-wrapper { position: relative; margin: .75rem 0; }
 .copy-code-btn {
   position: absolute; top: .5rem; right: .5rem; background: var(--surface);
@@ -160,6 +354,53 @@
 }
 .copy-code-btn:hover { background: var(--surface-hover); }
 
+/* Accordion */
+.accordion { display: flex; flex-direction: column; gap: .4rem; margin-top: .75rem; }
+.accordion-item { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.accordion-item summary {
+  padding: .75rem 1rem; cursor: pointer; font-weight: 600; font-size: .92rem;
+  display: flex; align-items: center; gap: .6rem;
+  list-style: none; user-select: none;
+  color: var(--text-primary); background: var(--surface);
+}
+.accordion-item summary::-webkit-details-marker { display: none; }
+.accordion-item summary::after {
+  content: '▶'; font-size: .65rem; margin-left: auto; opacity: .5;
+  transition: transform .2s;
+}
+.accordion-item[open] summary::after { transform: rotate(90deg); }
+.accordion-item[open] summary { border-bottom: 1px solid var(--border); }
+.accordion-body { padding: .9rem 1rem 1rem; }
+.accordion-body ul, .accordion-body ol { margin: .4rem 0 .6rem; }
+.accordion-body li { margin-bottom: .25rem; }
+.accordion-body a { color: #8839ef; }
+
+.acc-icon {
+  width: 24px; height: 24px; border-radius: 6px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: .7rem; font-weight: 800;
+  flex-shrink: 0;
+}
+.acc-claude  { background: rgba(136,57,239,.15); color: #8839ef; }
+.acc-openai  { background: rgba(16,163,127,.15); color: #10a37f; }
+.acc-ms      { background: rgba(0,114,239,.15);  color: #0072ef; }
+.acc-google  { background: rgba(234,67,53,.15);  color: #ea4335; }
+.acc-local   { background: rgba(160,160,168,.15); color: var(--text-muted); }
+.acc-generic { background: rgba(160,160,168,.15); color: var(--text-muted); }
+
+.acc-badge {
+  font-size: .7rem; font-weight: 600; padding: .1rem .45rem; border-radius: 4px;
+  background: rgba(136,57,239,.12); color: #8839ef; margin-left: .15rem;
+}
+.acc-badge-local {
+  background: rgba(160,160,168,.12); color: var(--text-muted);
+}
+
+/* Parameter table */
+.param-table { width: 100%; border-collapse: collapse; font-size: .85rem; margin: .5rem 0; }
+.param-table td { padding: .35rem .6rem; border: 1px solid var(--border); vertical-align: top; }
+.param-table tr:first-child td { border-top: 1px solid var(--border); }
+
+/* Tools grid */
 .tools-grid { display: flex; flex-direction: column; gap: .9rem; margin-top: .75rem; }
 .tool-card {
   display: flex; gap: 1rem; align-items: flex-start;
@@ -173,6 +414,14 @@
 }
 .tool-card strong { display: block; margin-bottom: .2rem; color: var(--text-primary); font-size: .95rem; }
 .tool-card p { margin: 0 0 .3rem; font-size: .85rem; }
+
+/* Prompt list */
+.prompt-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .45rem; }
+.prompt-list li {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: .55rem .9rem; font-size: .88rem;
+}
+.prompt-list li::before { content: '›'; margin-right: .4rem; color: #8839ef; font-weight: 700; }
 </style>
 {% endblock %}
 
@@ -185,7 +434,7 @@
   <nav class="toc-nav">
     <a href="#was-ist-mcp" class="toc-item toc-h2">Was ist MCP?</a>
     <a href="#api-token" class="toc-item toc-h2">API-Token generieren</a>
-    <a href="#claude-desktop" class="toc-item toc-h2">Claude Desktop konfigurieren</a>
+    <a href="#agent-setup" class="toc-item toc-h2">Agent konfigurieren</a>
     <a href="#verfuegbare-tools" class="toc-item toc-h2">Verfügbare Tools</a>
     <a href="#beispiel-prompts" class="toc-item toc-h2">Beispiel-Prompts</a>
   </nav>
@@ -222,15 +471,16 @@ async function generateToken() {
 function copyToken() {
   navigator.clipboard.writeText(currentToken);
   const btn = document.querySelector('.copy-btn');
-  btn.style.background = 'var(--accent-muted, rgba(124,93,250,.2))';
+  btn.style.background = 'var(--surface-hover)';
   setTimeout(() => btn.style.background = '', 1200);
 }
 
-function copyConfig() {
-  const code = document.getElementById('config-block').textContent;
-  const withToken = code.replace('DEIN_TOKEN', currentToken || 'DEIN_TOKEN');
-  navigator.clipboard.writeText(withToken);
-  const btn = document.querySelector('.copy-code-btn');
+function copyConfig(id) {
+  const el = document.getElementById(id);
+  let text = el.textContent;
+  if (currentToken) text = text.replace('DEIN_TOKEN', currentToken);
+  navigator.clipboard.writeText(text);
+  const btn = el.closest('.code-block-wrapper').querySelector('.copy-code-btn');
   const orig = btn.textContent;
   btn.textContent = 'Kopiert!';
   setTimeout(() => btn.textContent = orig, 1500);
