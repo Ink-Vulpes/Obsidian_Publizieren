@@ -5,8 +5,15 @@
 {% block content %}
 <h2>Nutzergruppen</h2>
 <p>
-  Gruppen erlauben es, Notizen auf bestimmte Nutzer zu beschränken.<br>
-  Trage <code>group: gruppenname</code> in die Metadaten einer Notiz ein.
+  Gruppen steuern den Zugriff auf Notizen über Queries.<br>
+  Eine Gruppe kann eine Query hinterlegen, die bestimmt, welche Notizen ihre Mitglieder sehen dürfen.
+</p>
+<p style="font-size:.8rem;margin-top:.3rem">
+  <strong>Query-Syntax</strong> (eine Bedingung pro Zeile, alle müssen zutreffen):<br>
+  <code>feld = wert</code> &nbsp;·&nbsp; <code>feld != wert</code> &nbsp;·&nbsp;
+  <code>feld contains text</code> &nbsp;·&nbsp; <code>feld starts_with prefix</code><br>
+  Spezialfelder: <code>tag</code>, <code>path</code>, <code>title</code> — alle anderen Felder beziehen sich auf Frontmatter-Keys.<br>
+  Beispiele: <code>tag = premium</code> &nbsp;·&nbsp; <code>path starts_with "Projekt/"</code> &nbsp;·&nbsp; <code>published = true</code>
 </p>
 
 <div class="card" style="margin-top:1rem">
@@ -20,6 +27,19 @@
         <span style="font-size:.78rem;color:#a0a0a8">ID {{ g.id }}</span>
         <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deleteGroup({{ g.id }}, '{{ g.name }}')">Gruppe löschen</button>
       </div>
+
+      <!-- Query -->
+      <div style="margin-bottom:.8rem">
+        <p style="margin-bottom:.3rem;font-size:.78rem">Zugriffsquery:</p>
+        <textarea id="query-{{ g.id }}" class="folder-textarea" rows="4"
+          placeholder="# Leer = kein querybasierter Zugriff&#10;tag = premium&#10;published = true">{{ g.query | default(value="") }}</textarea>
+        <div style="display:flex;gap:.4rem;margin-top:.3rem;align-items:center">
+          <button class="btn btn-primary btn-sm" onclick="saveQuery({{ g.id }})">Query speichern</button>
+          <span id="query-status-{{ g.id }}" style="font-size:.78rem;color:#a0a0a8"></span>
+        </div>
+      </div>
+
+      <!-- Members -->
       <div>
         <p style="margin-bottom:.3rem;font-size:.78rem">Mitglieder:</p>
         <div id="members-{{ g.id }}" style="display:flex;flex-wrap:wrap;gap:.2rem;margin-bottom:.5rem">
@@ -59,29 +79,45 @@
 
 {% block scripts %}
 <script>
+async function gql(query, variables = {}) {
+  const r = await fetch('/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables })
+  });
+  const d = await r.json();
+  if (d.errors?.length) throw new Error(d.errors[0].message);
+  return d.data;
+}
+
+async function saveQuery(id) {
+  const ta = document.getElementById('query-' + id);
+  const status = document.getElementById('query-status-' + id);
+  const query = ta.value || null;
+  status.textContent = '…';
+  try {
+    await gql('mutation($id:Int!,$q:String){update_group(id:$id,query:$q)}', { id, q: query });
+    status.textContent = '✓ Gespeichert';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch(e) { status.textContent = 'Fehler: ' + e.message; }
+}
+
 async function createGroup() {
   const input = document.getElementById('new-group-name');
   const name = input.value.trim();
   if (!name) return;
   try {
-    const r = await fetch('/api/admin/groups', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
-    });
-    const d = await r.json();
-    if (d.ok) location.reload();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($n:String!){create_group(name:$n)}', { n: name });
+    location.reload();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 
 async function deleteGroup(id, name) {
   if (!confirm(`Gruppe "${name}" wirklich löschen?`)) return;
   try {
-    const r = await fetch('/api/admin/groups/' + id, { method: 'DELETE' });
-    const d = await r.json();
-    if (d.ok) location.reload();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($id:Int!){delete_group(id:$id)}', { id });
+    location.reload();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 
 async function addGroupMember(groupId) {
@@ -89,23 +125,16 @@ async function addGroupMember(groupId) {
   const userId = parseInt(sel.value);
   if (!userId) return;
   try {
-    const r = await fetch(`/api/admin/groups/${groupId}/members`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId })
-    });
-    const d = await r.json();
-    if (d.ok) location.reload();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($g:Int!,$u:Int!){add_group_member(group_id:$g,user_id:$u)}', { g: groupId, u: userId });
+    location.reload();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 
-async function removeGroupMember(groupId, userId, btn) {
+async function removeGroupMember(groupId, userId) {
   try {
-    const r = await fetch(`/api/admin/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
-    const d = await r.json();
-    if (d.ok) location.reload();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($g:Int!,$u:Int!){remove_group_member(group_id:$g,user_id:$u)}', { g: groupId, u: userId });
+    location.reload();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 </script>
 {% endblock %}

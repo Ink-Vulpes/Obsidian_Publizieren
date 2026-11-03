@@ -1,6 +1,5 @@
 use axum::{extract::DefaultBodyLimit, http::HeaderValue, middleware, routing::{delete, get, post}, Router};
 use tower_http::set_header::SetResponseHeaderLayer;
-use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use tokio::sync::RwLock as AsyncRwLock;
 use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
@@ -10,7 +9,9 @@ mod auth;
 mod config;
 mod db;
 mod external_meta;
+mod graphql;
 mod parser;
+mod query;
 mod routes;
 mod vault;
 
@@ -23,14 +24,29 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub tera: Arc<tera::Tera>,
     pub db: sqlx::MySqlPool,
-    /// Global whitelist cache (empty = show all)
-    pub whitelist: Arc<RwLock<HashSet<String>>>,
-    /// Global blacklist cache
-    pub blacklist: Arc<RwLock<HashSet<String>>>,
     /// Frontmatter field checked for publish flag; empty = no filter
     pub publish_field: Arc<RwLock<String>>,
     /// Frontmatter field used for group-based access; default "group"
     pub group_field: Arc<RwLock<String>>,
+}
+
+/// Reload vault from disk and apply current group queries.
+pub async fn reload_vault(state: &AppState) {
+    let pf = state.publish_field.read().unwrap().clone();
+    let gf = state.group_field.read().unwrap().clone();
+    match vault::Vault::load(&state.config.server.vault_path, &pf, &gf) {
+        Ok(mut new_vault) => {
+            if let Ok(groups) = db::list_groups_with_members(&state.db).await {
+                let gq: Vec<vault::GroupQuery> = groups
+                    .into_iter()
+                    .map(|g| vault::GroupQuery { name: g.name, query: g.query })
+                    .collect();
+                new_vault.apply_group_queries(&gq);
+            }
+            *state.vault.write().await = new_vault;
+        }
+        Err(e) => tracing::warn!("Vault reload failed: {}", e),
+    }
 }
 
 #[tokio::main]
@@ -81,21 +97,24 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Vault ─────────────────────────────────────────────────────────────────
     tracing::info!("Loading vault from {}", config.server.vault_path);
-    let vault = Vault::load(&config.server.vault_path, &publish_field_str, &group_field_str).expect("Failed to load vault");
-    let vault = Arc::new(AsyncRwLock::new(vault));
-
-    // ── Whitelist / Blacklist cache ───────────────────────────────────────────
-    let whitelist: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(
-        db::get_whitelist(&db).await.unwrap_or_default().into_iter().collect(),
-    ));
-    let blacklist: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(
-        db::get_blacklist(&db).await.unwrap_or_default().into_iter().collect(),
-    ));
+    let mut initial_vault = Vault::load(&config.server.vault_path, &publish_field_str, &group_field_str)
+        .expect("Failed to load vault");
+    if let Ok(groups) = db::list_groups_with_members(&db).await {
+        let gq: Vec<vault::GroupQuery> = groups
+            .into_iter()
+            .map(|g| vault::GroupQuery { name: g.name, query: g.query })
+            .collect();
+        initial_vault.apply_group_queries(&gq);
+    }
+    let vault = Arc::new(AsyncRwLock::new(initial_vault));
 
     // ── Templates ─────────────────────────────────────────────────────────────
     let tera = Arc::new(build_templates()?);
 
-    let state = AppState { vault, config: config.clone(), tera, db, whitelist, blacklist, publish_field, group_field };
+    let state = AppState { vault, config: config.clone(), tera, db, publish_field, group_field };
+
+    // ── GraphQL schema ────────────────────────────────────────────────────────
+    let schema = Arc::new(graphql::build_schema(state.clone()));
 
     // ── Router ────────────────────────────────────────────────────────────────
     let app = Router::new()
@@ -106,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/logout", post(routes::auth::logout))
         .route("/auto-login", get(routes::auth::auto_login))
         .route("/register/:token", get(routes::auth::register_page).post(routes::auth::register))
-        // Static files (no auth, no-cache so JS/CSS updates are picked up immediately)
+        // Static files (no-cache so JS/CSS updates are picked up immediately)
         .nest_service(
             "/static",
             tower::ServiceBuilder::new()
@@ -116,51 +135,33 @@ async fn main() -> anyhow::Result<()> {
                 ))
                 .service(ServeDir::new("static")),
         )
-        // API auth endpoint for upload script
+        // Legacy REST token endpoint (backward compat with upload script)
         .route("/api/auth/token", post(routes::auth::api_token))
-        // Protected routes
+        // GraphQL endpoint (auth-optional: middleware injects CurrentUser when token present)
+        .route("/graphql", post(graphql::graphql_handler))
+        // Protected REST routes (file ops, search, graph – used by note pages)
         .route("/", get(routes::note::index))
         .route("/note/*path", get(routes::note::render_note))
         .route("/api/graph", get(routes::api::graph_data))
         .route("/api/search", get(routes::api::search))
         .route("/api/files", get(routes::api::file_list))
-        .route("/api/reload", get(routes::api::reload_vault))
-        .route("/api/files/manifest", get(routes::api::file_manifest))
         .route("/api/upload", post(routes::api::upload_files)
             .layer(DefaultBodyLimit::max(500 * 1024 * 1024)))
-        .route("/api/files/delete", delete(routes::api::delete_file))
-        .route("/api/files/delete-all", delete(routes::api::delete_all_files))
         .route("/api/sync/download", get(routes::api::download_file))
-        .route("/api/sync/device", post(routes::api::register_device))
-        .route("/api/admin/users", get(routes::admin::api_list_users))
-        .route("/api/admin/users/:id/permissions", post(routes::admin::api_update_permissions))
-        .route("/api/admin/lists", get(routes::admin::api_get_lists).post(routes::admin::api_set_lists))
-        .route("/api/admin/settings", get(routes::admin::api_get_settings).post(routes::admin::api_set_settings))
-        .route("/api/admin/groups", get(routes::admin::api_list_groups).post(routes::admin::api_create_group))
-        .route("/api/admin/groups/:id", delete(routes::admin::api_delete_group))
-        .route("/api/admin/groups/:id/members", post(routes::admin::api_add_group_member))
-        .route("/api/admin/groups/:id/members/:uid", delete(routes::admin::api_remove_group_member))
-        .route("/api/admin/note-meta", get(routes::admin::api_get_all_note_meta))
-        .route("/api/admin/note-meta/*slug", post(routes::admin::api_set_note_meta))
+        // Admin HTML pages + form handlers
         .route("/admin", get(routes::admin::admin_page))
         .route("/admin/users", get(routes::admin::admin_users_page))
-        .route("/admin/lists", get(routes::admin::admin_lists_page))
         .route("/admin/groups", get(routes::admin::admin_groups_page))
         .route("/admin/proposals", get(routes::admin::admin_proposals_page))
         .route("/admin/settings", get(routes::admin::admin_settings_page))
         .route("/admin/invite", post(routes::admin::create_invite))
         .route("/admin/users/:id/permissions", post(routes::admin::update_permissions))
         .route("/admin/users/:id", delete(routes::admin::delete_user))
-        .route("/admin/whitelist/add", post(routes::admin::add_whitelist))
-        .route("/admin/whitelist/remove", post(routes::admin::remove_whitelist))
-        .route("/admin/blacklist/add", post(routes::admin::add_blacklist))
-        .route("/admin/blacklist/remove", post(routes::admin::remove_blacklist))
+        // Proposal pages
         .route("/propose/*slug", get(routes::proposals::propose_page))
         .route("/api/proposals", post(routes::proposals::submit_proposal))
-        .route("/api/admin/proposals", get(routes::admin::api_list_proposals))
-        .route("/api/admin/proposals/:id/approve", post(routes::admin::api_approve_proposal))
-        .route("/api/admin/proposals/:id/reject", post(routes::admin::api_reject_proposal))
         .nest_service("/vault-assets", ServeDir::new(config.server.vault_path.clone()))
+        .layer(axum::Extension(schema))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(
             CorsLayer::new()
@@ -190,7 +191,6 @@ fn build_templates() -> anyhow::Result<tera::Tera> {
         ("admin.html",          include_str!("../templates/admin.html")),
         ("admin_layout.html",   include_str!("../templates/admin_layout.html")),
         ("admin_users.html",    include_str!("../templates/admin_users.html")),
-        ("admin_lists.html",    include_str!("../templates/admin_lists.html")),
         ("admin_groups.html",   include_str!("../templates/admin_groups.html")),
         ("admin_proposals.html",include_str!("../templates/admin_proposals.html")),
         ("admin_settings.html", include_str!("../templates/admin_settings.html")),

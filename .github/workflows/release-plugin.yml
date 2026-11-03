@@ -2,8 +2,10 @@ name: Release Obsidian Plugin
 
 on:
   push:
+    branches:
+      - master
     tags:
-      - 'plugin-v*'   # trigger: git tag plugin-v1.2.3 && git push --tags
+      - 'plugin-v*'
 
 jobs:
   build:
@@ -35,6 +37,7 @@ jobs:
         run: npm run build
 
       - name: Bump manifest version to match tag
+        if: startsWith(github.ref, 'refs/tags/plugin-v')
         run: |
           tag="${GITHUB_REF#refs/tags/plugin-v}"
           node -e "
@@ -45,12 +48,14 @@ jobs:
           "
 
       - name: Check for optional styles.css
+        if: startsWith(github.ref, 'refs/tags/plugin-v')
         id: styles
         run: |
           [ -f styles.css ] && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
 
       - name: Attest build provenance
-        continue-on-error: true # unsupported for user-owned private repositories
+        if: startsWith(github.ref, 'refs/tags/plugin-v')
+        continue-on-error: true
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: |
@@ -58,6 +63,7 @@ jobs:
             ${{ steps.styles.outputs.exists == 'true' && 'Client/obsidian-publisher/styles.css' || '' }}
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/plugin-v')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

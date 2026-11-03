@@ -119,9 +119,6 @@
     {% if current_user.can_manage_users or current_user.is_admin %}
     <a href="/admin/users" class="admin-nav-item {% if active_tab == 'users' %}active{% endif %}">Benutzer</a>
     {% endif %}
-    {% if current_user.can_manage_lists or current_user.is_admin %}
-    <a href="/admin/lists" class="admin-nav-item {% if active_tab == 'lists' %}active{% endif %}">Listen</a>
-    {% endif %}
     {% if current_user.is_admin %}
     <a href="/admin/groups" class="admin-nav-item {% if active_tab == 'groups' %}active{% endif %}">Gruppen</a>
     <a href="/admin/proposals" class="admin-nav-item {% if active_tab == 'proposals' %}active{% endif %}">

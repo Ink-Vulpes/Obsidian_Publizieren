@@ -90,23 +90,30 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+async function gql(query, variables = {}) {
+  const r = await fetch('/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables })
+  });
+  const d = await r.json();
+  if (d.errors?.length) throw new Error(d.errors[0].message);
+  return d.data;
+}
+
 async function approveProposal(id) {
   if (!confirm('Änderungsantrag annehmen? Die Notiz wird überschrieben.')) return;
   try {
-    const r = await fetch('/api/admin/proposals/' + id + '/approve', { method: 'POST' });
-    const d = await r.json();
-    if (d.ok) document.getElementById('proposal-' + id)?.remove();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($id:Int!){approve_proposal(id:$id)}', { id });
+    document.getElementById('proposal-' + id)?.remove();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 
 async function rejectProposal(id) {
   try {
-    const r = await fetch('/api/admin/proposals/' + id + '/reject', { method: 'POST' });
-    const d = await r.json();
-    if (d.ok) document.getElementById('proposal-' + id)?.remove();
-    else alert('Fehler: ' + (d.error || 'Unbekannter Fehler'));
-  } catch(e) { alert('Fehler: ' + e); }
+    await gql('mutation($id:Int!){reject_proposal(id:$id)}', { id });
+    document.getElementById('proposal-' + id)?.remove();
+  } catch(e) { alert('Fehler: ' + e.message); }
 }
 </script>
 {% endblock %}

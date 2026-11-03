@@ -15,6 +15,7 @@ export interface GroupMember {
 export interface Group {
 	id: number;
 	name: string;
+	query: string | null;
 	members: GroupMember[];
 }
 
@@ -60,17 +61,38 @@ export class ApiClient {
 		return `${this.normalizeBase()}${path}`;
 	}
 
+	private async graphql<T>(document: string, variables?: Record<string, unknown>): Promise<T> {
+		const token = await this.ensureToken();
+		const resp = await fetch(this.url('/graphql'), {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ query: document, variables }),
+		});
+		if (!resp.ok) throw new Error(`GraphQL HTTP ${resp.status}`);
+		const data = await resp.json();
+		if (data.errors?.length) throw new Error(data.errors[0].message);
+		return data.data as T;
+	}
+
 	async login(username: string, password: string): Promise<string> {
-		const resp = await fetch(this.url('/api/auth/token'), {
+		const resp = await fetch(this.url('/graphql'), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username, password }),
+			body: JSON.stringify({
+				query: 'mutation($u:String!,$p:String!){create_token(username:$u,password:$p)}',
+				variables: { u: username, p: password },
+			}),
 		});
 		if (!resp.ok) throw new Error(`Login fehlgeschlagen (HTTP ${resp.status})`);
 		const data = await resp.json();
-		if (!data.token) throw new Error(data.error || 'Kein Token erhalten');
-		this.token = data.token;
-		return data.token;
+		if (data.errors?.length) throw new Error(data.errors[0].message || 'Login fehlgeschlagen');
+		const token = data.data?.create_token;
+		if (!token) throw new Error('Kein Token erhalten');
+		this.token = token;
+		return token;
 	}
 
 	async ensureToken(): Promise<string> {
@@ -87,12 +109,10 @@ export class ApiClient {
 	// ── Vault ──────────────────────────────────────────────────────────────────
 
 	async getManifest(): Promise<ManifestEntry[]> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/files/manifest'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error(`Manifest-Fehler: HTTP ${resp.status}`);
-		return resp.json();
+		const d = await this.graphql<{ file_manifest: ManifestEntry[] }>(
+			'{file_manifest{path,size,checksum,modified}}'
+		);
+		return d.file_manifest;
 	}
 
 	async uploadFile(relPath: string, data: ArrayBuffer): Promise<boolean> {
@@ -100,7 +120,7 @@ export class ApiClient {
 		const boundary = '----ObsidianPluginUpload';
 		const headerStr = [
 			`--${boundary}`,
-			`Content-Disposition: form-data; name="file"; filename="${relPath}"`,
+			`Content-Disposition: form-data; name="file"; filename="${relPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`,
 			'Content-Type: application/octet-stream',
 			`x-file-path: ${relPath}`,
 			'',
@@ -139,62 +159,47 @@ export class ApiClient {
 	}
 
 	async deleteFile(relPath: string): Promise<boolean> {
-		const token = await this.ensureToken();
-		const resp = await fetch(
-			this.url(`/api/files/delete?path=${encodeURIComponent(relPath)}`),
-			{ method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } },
+		const d = await this.graphql<{ delete_file: boolean }>(
+			'mutation($p:String!){delete_file(path:$p)}',
+			{ p: relPath },
 		);
-		return resp.ok;
+		return d.delete_file;
 	}
 
 	async deleteAllFiles(): Promise<{ deleted: number; errors: string[] }> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/files/delete-all'), {
-			method: 'DELETE',
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error(`Server-Reset fehlgeschlagen (HTTP ${resp.status})`);
-		return resp.json();
+		const d = await this.graphql<{ delete_all_files: { deleted: number; errors: string[] } }>(
+			'mutation{delete_all_files{deleted,errors}}'
+		);
+		return d.delete_all_files;
 	}
 
 	async reloadVault(): Promise<void> {
-		const token = await this.ensureToken();
-		await fetch(this.url('/api/reload'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
+		await this.graphql<{ reload_vault: number }>('mutation{reload_vault}');
 	}
 
 	async registerDevice(deviceId: string, deviceName: string): Promise<void> {
-		const token = await this.ensureToken();
-		await fetch(this.url('/api/sync/device'), {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${token}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({ device_id: deviceId, device_name: deviceName }),
-		});
+		await this.graphql<unknown>(
+			'mutation($id:String!,$n:String!){register_device(device_id:$id,device_name:$n)}',
+			{ id: deviceId, n: deviceName },
+		);
 	}
 
-	// ── Admin JSON API ─────────────────────────────────────────────────────────
+	// ── Admin API ──────────────────────────────────────────────────────────────
 
 	async adminListUsers(): Promise<UserWithPermissions[]> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/users'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Keine Admin-Berechtigung oder Serverfehler');
-		return resp.json();
+		const d = await this.graphql<{ users: UserWithPermissions[] }>(
+			`{users{id,username,is_admin,created_at,allowed_folders,groups,
+			  permissions{can_upload,can_manage_users,can_manage_lists,
+			              folder_restriction,sees_published,sees_all,can_propose}}}`
+		);
+		return d.users;
 	}
 
 	async adminCreateInvite(): Promise<{ url: string; expires_hours: number }> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/admin/invite'), {
-			method: 'POST',
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Einladung konnte nicht erstellt werden');
-		return resp.json();
+		const d = await this.graphql<{ create_invite: { url: string; expires_hours: number } }>(
+			'mutation{create_invite{url,expires_hours}}'
+		);
+		return d.create_invite;
 	}
 
 	async adminUpdatePermissions(
@@ -210,148 +215,108 @@ export class ApiClient {
 			folders?: string[];
 		},
 	): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/api/admin/users/${userId}/permissions`), {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${token}`,
-				'Content-Type': 'application/json',
+		await this.graphql<unknown>(
+			`mutation($uid:Int!,$i:UpdatePermissionsInput!){update_permissions(user_id:$uid,input:$i)}`,
+			{
+				uid: userId,
+				i: {
+					can_upload: perms.can_upload,
+					can_manage_users: perms.can_manage_users,
+					can_manage_lists: perms.can_manage_lists,
+					folder_restriction: perms.folder_restriction,
+					sees_published: perms.sees_published,
+					sees_all: perms.sees_all,
+					can_propose: perms.can_propose,
+					folders: perms.folders ?? [],
+				},
 			},
-			body: JSON.stringify(perms),
-		});
-		if (!resp.ok) throw new Error('Berechtigungen konnten nicht gespeichert werden');
+		);
 	}
 
 	async adminDeleteUser(userId: number): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/admin/users/${userId}`), {
-			method: 'DELETE',
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Benutzer konnte nicht gelöscht werden');
-	}
-
-	async adminGetLists(): Promise<{ whitelist: string[]; blacklist: string[] }> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/lists'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Listen nicht verfügbar');
-		return resp.json();
-	}
-
-	async adminSetLists(whitelist: string[], blacklist: string[]): Promise<void> {
-		const token = await this.ensureToken();
-		await fetch(this.url('/api/admin/lists'), {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${token}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({ whitelist, blacklist }),
-		});
+		await this.graphql<unknown>(
+			'mutation($id:Int!){delete_user(user_id:$id)}',
+			{ id: userId },
+		);
 	}
 
 	async adminGetSettings(): Promise<{ publish_field: string; group_field: string }> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/settings'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Einstellungen nicht verfügbar');
-		return resp.json();
+		const d = await this.graphql<{ settings: { publish_field: string; group_field: string } }>(
+			'{settings{publish_field,group_field}}'
+		);
+		return d.settings;
 	}
 
 	async adminSetSettings(settings: { publish_field: string; group_field: string }): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/settings'), {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${token}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify(settings),
-		});
-		if (!resp.ok) throw new Error('Einstellungen konnten nicht gespeichert werden');
+		await this.graphql<unknown>(
+			'mutation($p:String!,$g:String){update_settings(publish_field:$p,group_field:$g)}',
+			{ p: settings.publish_field, g: settings.group_field || null },
+		);
 	}
 
 	// ── Group API ──────────────────────────────────────────────────────────────
 
 	async adminListGroups(): Promise<Group[]> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/groups'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Gruppen nicht verfügbar');
-		return resp.json();
+		const d = await this.graphql<{ groups: Group[] }>(
+			'{groups{id,name,query,members{id,username}}}'
+		);
+		return d.groups;
 	}
 
-	async adminCreateGroup(name: string): Promise<{ ok: boolean; id: number }> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/groups'), {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${token}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({ name }),
-		});
-		if (!resp.ok) throw new Error('Gruppe konnte nicht erstellt werden');
-		return resp.json();
+	async adminCreateGroup(name: string, query?: string): Promise<{ ok: boolean; id: number }> {
+		const d = await this.graphql<{ create_group: number }>(
+			'mutation($n:String!,$q:String){create_group(name:$n,query:$q)}',
+			{ n: name, q: query || null },
+		);
+		return { ok: true, id: Number(d.create_group) };
+	}
+
+	async adminUpdateGroup(groupId: number, query: string | null): Promise<void> {
+		await this.graphql<unknown>(
+			'mutation($id:Int!,$q:String){update_group(id:$id,query:$q)}',
+			{ id: groupId, q: query },
+		);
 	}
 
 	async adminDeleteGroup(groupId: number): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/api/admin/groups/${groupId}`), {
-			method: 'DELETE',
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Gruppe konnte nicht gelöscht werden');
+		await this.graphql<unknown>(
+			'mutation($id:Int!){delete_group(id:$id)}',
+			{ id: groupId },
+		);
 	}
 
 	async adminAddGroupMember(groupId: number, userId: number): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/api/admin/groups/${groupId}/members`), {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${token}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({ user_id: userId }),
-		});
-		if (!resp.ok) throw new Error('Mitglied konnte nicht hinzugefügt werden');
+		await this.graphql<unknown>(
+			'mutation($g:Int!,$u:Int!){add_group_member(group_id:$g,user_id:$u)}',
+			{ g: groupId, u: userId },
+		);
 	}
 
 	async adminRemoveGroupMember(groupId: number, userId: number): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/api/admin/groups/${groupId}/members/${userId}`), {
-			method: 'DELETE',
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Mitglied konnte nicht entfernt werden');
+		await this.graphql<unknown>(
+			'mutation($g:Int!,$u:Int!){remove_group_member(group_id:$g,user_id:$u)}',
+			{ g: groupId, u: userId },
+		);
 	}
 
 	// ── External note metadata API ─────────────────────────────────────────────
 
 	async adminGetAllNoteMeta(): Promise<Record<string, { groups?: string[] }>> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/note-meta'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Externe Metadaten nicht verfügbar');
-		return resp.json();
+		const d = await this.graphql<{ all_note_meta: { slug: string; groups: string[] }[] }>(
+			'{all_note_meta{slug,groups}}'
+		);
+		const result: Record<string, { groups?: string[] }> = {};
+		for (const entry of d.all_note_meta) {
+			result[entry.slug] = { groups: entry.groups.length ? entry.groups : undefined };
+		}
+		return result;
 	}
 
 	async adminSetNoteMeta(slug: string, groups: string[]): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/api/admin/note-meta/${slug}`), {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${token}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({ groups }),
-		});
-		if (!resp.ok) throw new Error('Metadaten konnten nicht gespeichert werden');
+		await this.graphql<unknown>(
+			'mutation($s:String!,$g:[String!]!){set_note_meta(slug:$s,groups:$g)}',
+			{ s: slug, g: groups },
+		);
 	}
 
 	// ── Proposals API ─────────────────────────────────────────────────────────
@@ -365,53 +330,30 @@ export class ApiClient {
 		message: string | null;
 		created_at: string;
 	}[]> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/admin/proposals'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Anträge nicht verfügbar');
-		return resp.json();
+		const d = await this.graphql<{ proposals: unknown[] }>(
+			'{proposals{id,note_slug,proposed_by,proposer_username,proposed_content,message,created_at}}'
+		);
+		return d.proposals as never;
 	}
 
 	async adminApproveProposal(id: number): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/api/admin/proposals/${id}/approve`), {
-			method: 'POST',
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Antrag konnte nicht angenommen werden');
+		await this.graphql<unknown>(
+			'mutation($id:Int!){approve_proposal(id:$id)}',
+			{ id },
+		);
 	}
 
 	async adminRejectProposal(id: number): Promise<void> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url(`/api/admin/proposals/${id}/reject`), {
-			method: 'POST',
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Antrag konnte nicht abgelehnt werden');
+		await this.graphql<unknown>(
+			'mutation($id:Int!){reject_proposal(id:$id)}',
+			{ id },
+		);
 	}
 
 	async adminGetNoteList(): Promise<{ slug: string; title: string; kind: string }[]> {
-		const token = await this.ensureToken();
-		const resp = await fetch(this.url('/api/files'), {
-			headers: { 'Authorization': `Bearer ${token}` },
-		});
-		if (!resp.ok) throw new Error('Dateiliste nicht verfügbar');
-		const tree = await resp.json();
-		const notes: { slug: string; title: string; kind: string }[] = [];
-		function flatten(node: unknown) {
-			if (Array.isArray(node)) {
-				node.forEach(flatten);
-			} else if (node && typeof node === 'object') {
-				const n = node as Record<string, unknown>;
-				if (n['type'] === 'file') {
-					notes.push({ slug: n['slug'] as string, title: n['name'] as string, kind: n['kind'] as string });
-				} else if (n['children']) {
-					flatten(n['children']);
-				}
-			}
-		}
-		flatten(tree);
-		return notes.sort((a, b) => a.slug.localeCompare(b.slug));
+		const d = await this.graphql<{ note_list: { slug: string; title: string; kind: string }[] }>(
+			'{note_list{slug,title,kind}}'
+		);
+		return d.note_list;
 	}
 }

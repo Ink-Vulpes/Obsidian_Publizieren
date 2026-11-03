@@ -86,9 +86,14 @@ impl From<Claims> for CurrentUser {
 
 impl CurrentUser {
     pub fn can_see_group_note(&self, required_groups: &[String]) -> bool {
-        if self.is_admin || required_groups.is_empty() {
+        if self.is_admin {
             return true;
         }
+        if self.groups.is_empty() {
+            // User is not in any group — no group restriction applies
+            return true;
+        }
+        // User is in at least one group: they may only see notes their groups cover
         required_groups.iter().any(|g| self.groups.contains(g))
     }
 }
@@ -154,6 +159,21 @@ pub fn verify_jwt(token: &str, secret: &str) -> Option<CurrentUser> {
 
 // ── Axum middleware ───────────────────────────────────────────────────────────
 
+fn extract_user(jar: &CookieJar, req: &Request, secret: &str) -> Option<CurrentUser> {
+    // Try session cookie first
+    if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) {
+        if let Some(user) = verify_jwt(&token, secret) {
+            return Some(user);
+        }
+    }
+    // Try Bearer token
+    req.headers()
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .and_then(|t| verify_jwt(t, secret))
+}
+
 pub async fn auth_layer(
     State(state): State<crate::AppState>,
     jar: CookieJar,
@@ -161,37 +181,29 @@ pub async fn auth_layer(
     next: Next,
 ) -> Response {
     let path = req.uri().path().to_string();
+    let secret = &state.config.auth.session_secret;
 
+    let user = extract_user(&jar, &req, secret);
+
+    // GraphQL endpoint: always pass through, inject Option<CurrentUser> for optional auth
+    if path == "/graphql" {
+        req.extensions_mut().insert(user);
+        return next.run(req).await;
+    }
+
+    // Authenticated request: inject CurrentUser and continue
+    if let Some(u) = user {
+        req.extensions_mut().insert(u);
+        return next.run(req).await;
+    }
+
+    // Public routes: pass through without authentication
     let is_public = path == "/login"
         || path == "/health"
         || path == "/api/auth/token"
         || path == "/auto-login"
         || path.starts_with("/register/")
         || path.starts_with("/static/");
-
-    let secret = &state.config.auth.session_secret;
-
-    // Try session cookie first
-    if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) {
-        if let Some(user) = verify_jwt(&token, secret) {
-            req.extensions_mut().insert(user);
-            return next.run(req).await;
-        }
-    }
-
-    // Try Bearer token (API clients)
-    if let Some(bearer) = req
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|t| t.to_string())
-    {
-        if let Some(user) = verify_jwt(&bearer, secret) {
-            req.extensions_mut().insert(user);
-            return next.run(req).await;
-        }
-    }
 
     if is_public {
         return next.run(req).await;
