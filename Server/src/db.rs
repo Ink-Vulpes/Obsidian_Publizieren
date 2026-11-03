@@ -22,6 +22,7 @@ pub struct UserPermissions {
     pub sees_published: bool,
     pub sees_all: bool,
     pub can_propose: bool,
+    pub can_use_mcp: bool,
 }
 
 impl Default for UserPermissions {
@@ -35,6 +36,7 @@ impl Default for UserPermissions {
             sees_published: false,
             sees_all: false,
             can_propose: false,
+            can_use_mcp: false,
         }
     }
 }
@@ -101,6 +103,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
         include_str!("../migrations/006_user_visibility.sql"),
         include_str!("../migrations/007_proposals.sql"),
         include_str!("../migrations/008_group_query.sql"),
+        include_str!("../migrations/009_mcp_permission.sql"),
     ] {
         for stmt in sql.split(";\n") {
             let s = stmt.trim();
@@ -202,7 +205,8 @@ pub async fn get_user_permissions(pool: &MySqlPool, user_id: u32) -> anyhow::Res
         "SELECT user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction,
                 COALESCE(sees_published, FALSE) AS sees_published,
                 COALESCE(sees_all, FALSE) AS sees_all,
-                COALESCE(can_propose, FALSE) AS can_propose
+                COALESCE(can_propose, FALSE) AS can_propose,
+                COALESCE(can_use_mcp, FALSE) AS can_use_mcp
          FROM user_permissions WHERE user_id = ?",
     )
     .bind(user_id)
@@ -215,8 +219,8 @@ pub async fn upsert_permissions(pool: &MySqlPool, perms: &UserPermissions) -> an
     sqlx::query(
         "INSERT INTO user_permissions
            (user_id, can_upload, can_manage_users, can_manage_lists, folder_restriction,
-            sees_published, sees_all, can_propose)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            sees_published, sees_all, can_propose, can_use_mcp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            can_upload = VALUES(can_upload),
            can_manage_users = VALUES(can_manage_users),
@@ -224,7 +228,8 @@ pub async fn upsert_permissions(pool: &MySqlPool, perms: &UserPermissions) -> an
            folder_restriction = VALUES(folder_restriction),
            sees_published = VALUES(sees_published),
            sees_all = VALUES(sees_all),
-           can_propose = VALUES(can_propose)",
+           can_propose = VALUES(can_propose),
+           can_use_mcp = VALUES(can_use_mcp)",
     )
     .bind(perms.user_id)
     .bind(perms.can_upload)
@@ -234,6 +239,7 @@ pub async fn upsert_permissions(pool: &MySqlPool, perms: &UserPermissions) -> an
     .bind(perms.sees_published)
     .bind(perms.sees_all)
     .bind(perms.can_propose)
+    .bind(perms.can_use_mcp)
     .execute(pool)
     .await?;
     Ok(())

@@ -157,6 +157,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/invite", post(routes::admin::create_invite))
         .route("/admin/users/:id/permissions", post(routes::admin::update_permissions))
         .route("/admin/users/:id", delete(routes::admin::delete_user))
+        // MCP setup page and API endpoint
+        .route("/mcp-setup", get(routes::mcp::mcp_setup_page))
+        .route("/mcp-setup/token", post(routes::mcp::generate_mcp_token))
+        .route("/mcp", post(routes::mcp::mcp_handler))
         // Proposal pages
         .route("/propose/*slug", get(routes::proposals::propose_page))
         .route("/api/proposals", post(routes::proposals::submit_proposal))
@@ -196,6 +200,7 @@ fn build_templates() -> anyhow::Result<tera::Tera> {
         ("admin_settings.html", include_str!("../templates/admin_settings.html")),
         ("propose.html",        include_str!("../templates/propose.html")),
         ("bases.html",      include_str!("../templates/bases.html")),
+        ("mcp_setup.html",  include_str!("../templates/mcp_setup.html")),
     ])?;
     Ok(tera)
 }

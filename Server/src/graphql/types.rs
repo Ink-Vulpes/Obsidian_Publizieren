@@ -10,6 +10,7 @@ pub struct UserPermissionsGql {
     pub sees_published: bool,
     pub sees_all: bool,
     pub can_propose: bool,
+    pub can_use_mcp: bool,
 }
 
 impl From<&crate::db::UserPermissions> for UserPermissionsGql {
@@ -22,6 +23,7 @@ impl From<&crate::db::UserPermissions> for UserPermissionsGql {
             sees_published: p.sees_published,
             sees_all: p.sees_all,
             can_propose: p.can_propose,
+            can_use_mcp: p.can_use_mcp,
         }
     }
 }
@@ -154,6 +156,7 @@ pub struct UpdatePermissionsInput {
     pub sees_published: bool,
     pub sees_all: bool,
     pub can_propose: bool,
+    pub can_use_mcp: bool,
     pub folders: Option<Vec<String>>,
 }
 
@@ -162,4 +165,31 @@ pub struct UpdatePermissionsInput {
 pub struct NoteMeta {
     pub slug: String,
     pub groups: Vec<String>,
+}
+
+#[derive(SimpleObject)]
+#[graphql(rename_fields = "snake_case")]
+pub struct FrontmatterEntryGql {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(SimpleObject)]
+#[graphql(rename_fields = "snake_case")]
+pub struct NoteSearchResultGql {
+    pub slug: String,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub frontmatter: Vec<FrontmatterEntryGql>,
+    pub excerpt: Option<String>,
+}
+
+#[derive(InputObject)]
+#[graphql(rename_fields = "snake_case")]
+pub struct MetadataFilterInput {
+    /// Frontmatter-Schlüssel (Groß-/Kleinschreibung wird ignoriert).
+    pub key: String,
+    /// Optionaler Wert — fehlt er, wird nur geprüft ob der Schlüssel vorhanden ist.
+    /// Enthält der Wert den Suchstring (case-insensitiv), gilt die Bedingung als erfüllt.
+    pub value: Option<String>,
 }

@@ -28,6 +28,8 @@ pub struct Claims {
     pub sees_all: bool,
     #[serde(default)]
     pub can_propose: bool,
+    #[serde(default)]
+    pub can_use_mcp: bool,
     pub exp: usize,
     pub iat: usize,
 }
@@ -48,6 +50,7 @@ pub struct CurrentUser {
     pub sees_published: bool,
     pub sees_all: bool,
     pub can_propose: bool,
+    pub can_use_mcp: bool,
 }
 
 impl CurrentUser {
@@ -80,6 +83,7 @@ impl From<Claims> for CurrentUser {
             sees_published: c.sees_published,
             sees_all: c.sees_all,
             can_propose: c.can_propose,
+            can_use_mcp: c.can_use_mcp,
         }
     }
 }
@@ -113,6 +117,7 @@ pub fn create_jwt(
     sees_published: bool,
     sees_all: bool,
     can_propose: bool,
+    can_use_mcp: bool,
     duration_hours: i64,
     secret: &str,
 ) -> anyhow::Result<String> {
@@ -132,6 +137,7 @@ pub fn create_jwt(
         sees_published,
         sees_all,
         can_propose,
+        can_use_mcp,
         exp,
         iat: now,
     };

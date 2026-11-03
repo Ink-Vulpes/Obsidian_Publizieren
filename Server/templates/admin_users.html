@@ -44,7 +44,8 @@
             {% if u.permissions.sees_published %}Published {% endif %}
             {% if u.permissions.sees_all %}Alles {% endif %}
             {% if u.permissions.can_propose %}Vorschlag {% endif %}
-            {% if not u.permissions.can_upload and not u.permissions.can_manage_users and not u.permissions.can_manage_lists and not u.permissions.sees_published and not u.permissions.sees_all and not u.permissions.can_propose %}
+            {% if u.permissions.can_use_mcp %}MCP {% endif %}
+            {% if not u.permissions.can_upload and not u.permissions.can_manage_users and not u.permissions.can_manage_lists and not u.permissions.sees_published and not u.permissions.sees_all and not u.permissions.can_propose and not u.permissions.can_use_mcp %}
               <em>keine</em>
             {% endif %}
           {% endif %}
@@ -62,6 +63,7 @@
                   <div class="perm-row"><input type="checkbox" name="sees_published" id="csp_{{ u.id }}" {% if u.permissions.sees_published %}checked{% endif %}><label for="csp_{{ u.id }}">Sieht alle veröffentlichten Notizen</label></div>
                   <div class="perm-row"><input type="checkbox" name="sees_all" id="csa_{{ u.id }}" {% if u.permissions.sees_all %}checked{% endif %}><label for="csa_{{ u.id }}">Sieht alles inkl. unveröffentlichte</label></div>
                   <div class="perm-row"><input type="checkbox" name="can_propose" id="cp_{{ u.id }}" {% if u.permissions.can_propose %}checked{% endif %}><label for="cp_{{ u.id }}">Darf Änderungsanträge stellen</label></div>
+                  <div class="perm-row"><input type="checkbox" name="can_use_mcp" id="cmcp_{{ u.id }}" {% if u.permissions.can_use_mcp %}checked{% endif %}><label for="cmcp_{{ u.id }}">Darf MCP-Schnittstelle nutzen</label></div>
                   <button type="submit" class="btn btn-primary btn-sm" style="margin-top:.6rem">Speichern</button>
                 </form>
                 {% if groups %}
