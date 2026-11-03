@@ -29,15 +29,23 @@
       <h2>Schritt 1 – API-Token generieren</h2>
       <p>Generieren Sie einen langlebigen Token (1 Jahr Laufzeit), den Sie in Ihrer Agent-Konfiguration hinterlegen. Der Token wird mit Ihren Rechten ausgestellt – Sie sehen nur Notizen, auf die Ihr Account Zugriff hat.</p>
 
-      <div style="margin:1.2rem 0">
+      <div class="token-create-row">
+        <input id="token-name-input" class="token-name-input" type="text" placeholder="Token-Name (z.B. Claude Desktop)" maxlength="80" />
         <button id="gen-token-btn" class="btn-mcp-primary" onclick="generateToken()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           API-Token generieren
         </button>
+        <button class="btn-mcp-secondary" onclick="openTokenManager()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Tokens verwalten
+        </button>
       </div>
 
       <div id="token-result" style="display:none">
-        <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">Bitte bewahren Sie diesen Token sicher auf – er wird nicht gespeichert.</p>
+        <div class="token-warning-banner">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Dieser Token wird <strong>nur einmal</strong> angezeigt. Kopieren Sie ihn jetzt – er kann später nicht mehr eingesehen werden.
+        </div>
         <div class="token-box">
           <code id="token-value" style="word-break:break-all;font-size:.8rem;color:#8839ef"></code>
           <button class="copy-btn" onclick="copyToken()" title="Kopieren">
@@ -47,6 +55,22 @@
         <p id="token-expires" style="color:var(--text-muted);font-size:.78rem;margin-top:.4rem"></p>
       </div>
     </section>
+
+    <!-- Token Manager Modal -->
+    <div id="token-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTokenManager()">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Aktive API-Tokens</h3>
+          <button class="modal-close" onclick="closeTokenManager()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <p class="modal-hint">Der Token-Wert selbst ist nicht einsehbar – nur der Name wird gespeichert.</p>
+        <div id="token-list-content">
+          <p style="color:var(--text-muted);text-align:center;padding:1rem">Lade…</p>
+        </div>
+      </div>
+    </div>
 
     <section id="agent-setup">
       <h2>Schritt 2 – Agent konfigurieren</h2>
@@ -327,10 +351,92 @@
   display: inline-flex; align-items: center; gap: .5rem;
   background: #8839ef; color: #fff; border: none; border-radius: 8px;
   padding: .55rem 1.1rem; font-size: .9rem; font-weight: 600; cursor: pointer;
-  transition: opacity .15s;
+  transition: opacity .15s; white-space: nowrap;
 }
 .btn-mcp-primary:hover { opacity: .85; }
 .btn-mcp-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Secondary button */
+.btn-mcp-secondary {
+  display: inline-flex; align-items: center; gap: .5rem;
+  background: transparent; color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: .55rem 1.1rem; font-size: .9rem; font-weight: 500; cursor: pointer;
+  transition: background .15s, border-color .15s; white-space: nowrap;
+}
+.btn-mcp-secondary:hover { background: var(--surface-hover); border-color: #8839ef; color: var(--text); }
+
+/* Token creation row */
+.token-create-row {
+  display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin: 1.2rem 0;
+}
+.token-name-input {
+  flex: 1; min-width: 200px; max-width: 320px;
+  background: var(--code-bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: .52rem .9rem; font-size: .9rem;
+  transition: border-color .15s;
+}
+.token-name-input:focus { outline: none; border-color: #8839ef; }
+.token-name-input.input-error { border-color: #e64553; animation: shake .25s; }
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25%      { transform: translateX(-4px); }
+  75%      { transform: translateX(4px); }
+}
+
+/* Warning banner for one-time token display */
+.token-warning-banner {
+  display: flex; align-items: center; gap: .6rem;
+  background: color-mix(in srgb, #fe640b 12%, transparent);
+  border: 1px solid color-mix(in srgb, #fe640b 40%, transparent);
+  border-radius: 8px; padding: .6rem .9rem;
+  font-size: .85rem; color: var(--text); margin-bottom: .6rem;
+}
+
+/* Token Manager Modal */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 1rem;
+}
+.modal-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; width: 100%; max-width: 520px;
+  max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,.35);
+  display: flex; flex-direction: column;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.1rem 1.3rem .6rem; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { margin: 0; font-size: 1.05rem; }
+.modal-close {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-muted); padding: .2rem; border-radius: 5px;
+  display: flex; align-items: center;
+}
+.modal-close:hover { color: var(--text); background: var(--surface-hover); }
+.modal-hint {
+  font-size: .8rem; color: var(--text-muted); margin: .5rem 1.3rem;
+}
+.token-manager-row {
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  padding: .75rem 1.3rem; border-bottom: 1px solid var(--border);
+}
+.token-manager-row:last-child { border-bottom: none; }
+.token-manager-info { display: flex; flex-direction: column; gap: .15rem; }
+.token-manager-name { font-size: .9rem; font-weight: 500; color: var(--text); }
+.token-manager-date { font-size: .75rem; color: var(--text-muted); }
+.btn-delete-token {
+  display: inline-flex; align-items: center; gap: .4rem;
+  background: transparent; color: #e64553;
+  border: 1px solid color-mix(in srgb, #e64553 40%, transparent);
+  border-radius: 7px; padding: .35rem .7rem; font-size: .82rem;
+  cursor: pointer; transition: background .15s; white-space: nowrap; flex-shrink: 0;
+}
+.btn-delete-token:hover { background: color-mix(in srgb, #e64553 12%, transparent); }
 
 /* Token box */
 .token-box {
@@ -446,14 +552,31 @@
 let currentToken = '';
 
 async function generateToken() {
+  const nameInput = document.getElementById('token-name-input');
+  const name = nameInput.value.trim();
+  if (!name) {
+    nameInput.focus();
+    nameInput.classList.add('input-error');
+    setTimeout(() => nameInput.classList.remove('input-error'), 2000);
+    return;
+  }
+
   const btn = document.getElementById('gen-token-btn');
   btn.disabled = true;
   btn.textContent = 'Wird generiert…';
   try {
-    const r = await fetch('/mcp-setup/token', { method: 'POST' });
-    if (!r.ok) throw new Error('Fehler: ' + r.status);
+    const r = await fetch('/mcp-setup/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || 'Fehler: ' + r.status);
+    }
     const d = await r.json();
     currentToken = d.token;
+    nameInput.value = '';
     document.getElementById('token-value').textContent = d.token;
     const exp = new Date(d.expires_at);
     document.getElementById('token-expires').textContent =
@@ -484,6 +607,70 @@ function copyConfig(id) {
   const orig = btn.textContent;
   btn.textContent = 'Kopiert!';
   setTimeout(() => btn.textContent = orig, 1500);
+}
+
+// ── Token Manager Modal ───────────────────────────────────────────────────────
+
+async function openTokenManager() {
+  document.getElementById('token-modal').style.display = 'flex';
+  await loadTokenList();
+}
+
+function closeTokenManager() {
+  document.getElementById('token-modal').style.display = 'none';
+}
+
+async function loadTokenList() {
+  const container = document.getElementById('token-list-content');
+  container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem">Lade…</p>';
+  try {
+    const r = await fetch('/mcp-setup/tokens');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (!d.tokens || d.tokens.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem">Keine aktiven Tokens vorhanden.</p>';
+      return;
+    }
+    container.innerHTML = '';
+    for (const t of d.tokens) {
+      const created = new Date(t.created_at).toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' });
+      const row = document.createElement('div');
+      row.className = 'token-manager-row';
+      row.id = 'token-row-' + t.id;
+      row.innerHTML = `
+        <div class="token-manager-info">
+          <span class="token-manager-name">${escHtml(t.name)}</span>
+          <span class="token-manager-date">Erstellt: ${created}</span>
+        </div>
+        <button class="btn-delete-token" onclick="deleteToken(${t.id})" title="Token löschen">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          Löschen
+        </button>`;
+      container.appendChild(row);
+    }
+  } catch(e) {
+    container.innerHTML = '<p style="color:var(--color-error,#e64553);padding:1rem">Fehler beim Laden: ' + e.message + '</p>';
+  }
+}
+
+async function deleteToken(id) {
+  if (!confirm('Token wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return;
+  try {
+    const r = await fetch('/mcp-setup/tokens/' + id, { method: 'DELETE' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const row = document.getElementById('token-row-' + id);
+    if (row) row.remove();
+    const container = document.getElementById('token-list-content');
+    if (!container.querySelector('.token-manager-row')) {
+      container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem">Keine aktiven Tokens vorhanden.</p>';
+    }
+  } catch(e) {
+    alert('Fehler beim Löschen: ' + e.message);
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 {% endblock %}
