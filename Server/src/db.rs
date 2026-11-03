@@ -100,6 +100,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> anyhow::Result<()> {
         include_str!("../migrations/005_groups.sql"),
         include_str!("../migrations/006_user_visibility.sql"),
         include_str!("../migrations/007_proposals.sql"),
+        include_str!("../migrations/008_group_query.sql"),
     ] {
         for stmt in sql.split(";\n") {
             let s = stmt.trim();
