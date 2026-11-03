@@ -159,6 +159,7 @@ pub struct UpdatePermForm {
     pub sees_published: Option<String>,
     pub sees_all: Option<String>,
     pub can_propose: Option<String>,
+    pub can_use_mcp: Option<String>,
     pub folders: Option<String>,
 }
 
@@ -186,6 +187,7 @@ pub async fn update_permissions(
         sees_published: form.sees_published.as_deref() == Some("on"),
         sees_all: form.sees_all.as_deref() == Some("on"),
         can_propose: form.can_propose.as_deref() == Some("on"),
+        can_use_mcp: form.can_use_mcp.as_deref() == Some("on"),
     };
 
     if let Err(e) = crate::db::upsert_permissions(&state.db, &perms).await {

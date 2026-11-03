@@ -1,0 +1,1 @@
+ALTER TABLE user_permissions ADD COLUMN can_use_mcp BOOLEAN NOT NULL DEFAULT FALSE;

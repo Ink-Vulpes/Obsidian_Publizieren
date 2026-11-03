@@ -38,6 +38,7 @@ async fn make_jwt_for_user(
         perms.sees_published,
         perms.sees_all,
         perms.can_propose,
+        perms.can_use_mcp,
         state.config.auth.session_duration_hours,
         &state.config.auth.session_secret,
     )

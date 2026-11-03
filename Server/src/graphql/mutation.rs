@@ -62,6 +62,7 @@ impl MutationRoot {
             perms.sees_published,
             perms.sees_all,
             perms.can_propose,
+            perms.can_use_mcp,
             state.config.auth.session_duration_hours,
             &state.config.auth.session_secret,
         )
@@ -179,6 +180,7 @@ impl MutationRoot {
             sees_published: input.sees_published,
             sees_all: input.sees_all,
             can_propose: input.can_propose,
+            can_use_mcp: input.can_use_mcp,
         };
         crate::db::upsert_permissions(&state.db, &perms).await
             .map_err(|e| async_graphql::Error::new(e.to_string()))?;

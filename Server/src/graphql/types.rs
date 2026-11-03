@@ -10,6 +10,7 @@ pub struct UserPermissionsGql {
     pub sees_published: bool,
     pub sees_all: bool,
     pub can_propose: bool,
+    pub can_use_mcp: bool,
 }
 
 impl From<&crate::db::UserPermissions> for UserPermissionsGql {
@@ -22,6 +23,7 @@ impl From<&crate::db::UserPermissions> for UserPermissionsGql {
             sees_published: p.sees_published,
             sees_all: p.sees_all,
             can_propose: p.can_propose,
+            can_use_mcp: p.can_use_mcp,
         }
     }
 }
@@ -154,6 +156,7 @@ pub struct UpdatePermissionsInput {
     pub sees_published: bool,
     pub sees_all: bool,
     pub can_propose: bool,
+    pub can_use_mcp: bool,
     pub folders: Option<Vec<String>>,
 }
 

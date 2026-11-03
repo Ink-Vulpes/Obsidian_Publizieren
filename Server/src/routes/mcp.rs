@@ -1,0 +1,309 @@
+use axum::{
+    extract::{Extension, State},
+    http::StatusCode,
+    response::{Html, IntoResponse, Json, Response},
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::{auth::CurrentUser, routes::api::note_visible, AppState};
+
+// ── MCP Setup Page ────────────────────────────────────────────────────────────
+
+pub async fn mcp_setup_page(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.can_use_mcp && !current_user.is_admin {
+        return (StatusCode::FORBIDDEN, "Kein Zugriff auf MCP-Setup").into_response();
+    }
+
+    let mut ctx = tera::Context::new();
+    ctx.insert("site_title", &state.config.server.site_title);
+    ctx.insert("current_user", &current_user);
+    ctx.insert("base_url", &state.config.server.base_url);
+
+    Html(
+        state.tera.render("mcp_setup.html", &ctx)
+            .unwrap_or_else(|e| format!("<pre>Template error: {e}</pre>")),
+    ).into_response()
+}
+
+// ── Token generation (long-lived API token for MCP) ───────────────────────────
+
+pub async fn generate_mcp_token(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+) -> Response {
+    if !current_user.can_use_mcp && !current_user.is_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Kein MCP-Zugriff"})),
+        ).into_response();
+    }
+
+    let perms = match crate::db::get_user_permissions(&state.db, current_user.id).await {
+        Ok(p) => p,
+        Err(_) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Datenbankfehler"})),
+        ).into_response(),
+    };
+    let folders = crate::db::get_allowed_folders(&state.db, current_user.id).await.unwrap_or_default();
+    let groups = crate::db::get_user_group_names(&state.db, current_user.id).await.unwrap_or_default();
+
+    let token = match crate::auth::create_jwt(
+        current_user.id,
+        &current_user.username,
+        current_user.is_admin,
+        perms.can_upload,
+        perms.can_manage_users,
+        perms.can_manage_lists,
+        perms.folder_restriction,
+        folders,
+        groups,
+        perms.sees_published,
+        perms.sees_all,
+        perms.can_propose,
+        perms.can_use_mcp,
+        8760, // 1 year
+        &state.config.auth.session_secret,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("generate_mcp_token: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Token-Fehler"})),
+            ).into_response();
+        }
+    };
+
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(8760);
+    Json(serde_json::json!({
+        "token": token,
+        "expires_at": expires_at.to_rfc3339(),
+    })).into_response()
+}
+
+// ── MCP JSON-RPC 2.0 Endpoint ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub id: Option<Value>,
+    pub method: String,
+    pub params: Option<Value>,
+}
+
+#[derive(Serialize)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    pub id: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcError>,
+}
+
+#[derive(Serialize)]
+pub struct JsonRpcError {
+    pub code: i32,
+    pub message: String,
+}
+
+impl JsonRpcResponse {
+    fn ok(id: Option<Value>, result: Value) -> Self {
+        Self { jsonrpc: "2.0".to_string(), id, result: Some(result), error: None }
+    }
+    fn err(id: Option<Value>, code: i32, msg: impl Into<String>) -> Self {
+        Self { jsonrpc: "2.0".to_string(), id, result: None, error: Some(JsonRpcError { code, message: msg.into() }) }
+    }
+}
+
+pub async fn mcp_handler(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<CurrentUser>,
+    Json(req): Json<JsonRpcRequest>,
+) -> Response {
+    if !current_user.can_use_mcp && !current_user.is_admin {
+        return Json(JsonRpcResponse::err(req.id, -32001, "Kein MCP-Zugriff")).into_response();
+    }
+
+    let resp = match req.method.as_str() {
+        "initialize" => handle_initialize(&req.id),
+        "tools/list" => handle_tools_list(&req.id),
+        "tools/call" => handle_tool_call(&req.id, req.params.as_ref(), &state, &current_user).await,
+        "ping" => JsonRpcResponse::ok(req.id, serde_json::json!({})),
+        _ => JsonRpcResponse::err(req.id, -32601, format!("Method not found: {}", req.method)),
+    };
+
+    Json(resp).into_response()
+}
+
+fn handle_initialize(id: &Option<Value>) -> JsonRpcResponse {
+    JsonRpcResponse::ok(id.clone(), serde_json::json!({
+        "protocolVersion": "2024-11-05",
+        "capabilities": { "tools": {} },
+        "serverInfo": { "name": "obsidian-publisher", "version": "1.0.0" }
+    }))
+}
+
+fn handle_tools_list(id: &Option<Value>) -> JsonRpcResponse {
+    JsonRpcResponse::ok(id.clone(), serde_json::json!({
+        "tools": [
+            {
+                "name": "search_notes",
+                "description": "Sucht Notizen im Vault. Gibt Treffer mit Titel, Slug und Textauszug zurück.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Suchbegriff" }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "read_note",
+                "description": "Liest den vollständigen Markdown-Inhalt einer Notiz.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "slug": { "type": "string", "description": "Notiz-Slug (z.B. '01 MOC/Index')" }
+                    },
+                    "required": ["slug"]
+                }
+            },
+            {
+                "name": "list_notes",
+                "description": "Listet alle sichtbaren Notizen mit Titel, Slug und Tags.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": { "type": "integer", "description": "Max. Anzahl (Standard: 100)" }
+                    }
+                }
+            }
+        ]
+    }))
+}
+
+async fn handle_tool_call(
+    id: &Option<Value>,
+    params: Option<&Value>,
+    state: &AppState,
+    user: &CurrentUser,
+) -> JsonRpcResponse {
+    let Some(params) = params else {
+        return JsonRpcResponse::err(id.clone(), -32602, "Missing params");
+    };
+
+    let name = match params.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return JsonRpcResponse::err(id.clone(), -32602, "Missing tool name"),
+    };
+
+    let args = params.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+
+    match name {
+        "search_notes" => {
+            let query = match args.get("query").and_then(|v| v.as_str()) {
+                Some(q) => q.to_lowercase(),
+                None => return JsonRpcResponse::err(id.clone(), -32602, "Missing query"),
+            };
+
+            let vault = state.vault.read().await;
+            let mut results: Vec<Value> = vec![];
+
+            for note in vault.notes.values() {
+                if !note_visible(note, user, state) { continue; }
+                let in_title = note.title.to_lowercase().contains(&query);
+                let in_body = vault.search_index.get(&note.slug)
+                    .map(|t| t.to_lowercase().contains(&query))
+                    .unwrap_or(false);
+                if in_title || in_body {
+                    let excerpt = vault.search_index.get(&note.slug)
+                        .map(|t| {
+                            if let Some(pos) = t.to_lowercase().find(&query) {
+                                let start = pos.saturating_sub(80);
+                                let end = (pos + query.len() + 80).min(t.len());
+                                format!("…{}…", &t[start..end])
+                            } else {
+                                t.chars().take(160).collect::<String>()
+                            }
+                        })
+                        .unwrap_or_default();
+                    results.push(serde_json::json!({
+                        "slug": note.slug,
+                        "title": note.title,
+                        "tags": note.tags,
+                        "excerpt": excerpt,
+                    }));
+                    if results.len() >= 20 { break; }
+                }
+            }
+
+            JsonRpcResponse::ok(id.clone(), serde_json::json!({
+                "content": [{ "type": "text", "text": serde_json::to_string_pretty(&results).unwrap_or_default() }]
+            }))
+        }
+
+        "read_note" => {
+            let slug = match args.get("slug").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return JsonRpcResponse::err(id.clone(), -32602, "Missing slug"),
+            };
+
+            let vault = state.vault.read().await;
+            let note = match vault.notes.get(slug) {
+                Some(n) => n.clone(),
+                None => return JsonRpcResponse::ok(id.clone(), serde_json::json!({
+                    "content": [{ "type": "text", "text": format!("Notiz '{}' nicht gefunden.", slug) }],
+                    "isError": true
+                })),
+            };
+            drop(vault);
+
+            if !note_visible(&note, user, state) {
+                return JsonRpcResponse::ok(id.clone(), serde_json::json!({
+                    "content": [{ "type": "text", "text": "Zugriff verweigert." }],
+                    "isError": true
+                }));
+            }
+
+            let path = std::path::Path::new(&state.config.server.vault_path).join(&note.path);
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|_| "Inhalt nicht lesbar.".to_string());
+
+            JsonRpcResponse::ok(id.clone(), serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("# {}\nSlug: {}\nTags: {}\n\n---\n\n{}",
+                        note.title, note.slug, note.tags.join(", "), content)
+                }]
+            }))
+        }
+
+        "list_notes" => {
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+            let vault = state.vault.read().await;
+
+            let notes: Vec<Value> = vault.notes.values()
+                .filter(|n| note_visible(n, user, state))
+                .take(limit)
+                .map(|n| serde_json::json!({
+                    "slug": n.slug,
+                    "title": n.title,
+                    "tags": n.tags,
+                    "is_published": n.is_published,
+                }))
+                .collect();
+
+            JsonRpcResponse::ok(id.clone(), serde_json::json!({
+                "content": [{ "type": "text", "text": serde_json::to_string_pretty(&notes).unwrap_or_default() }]
+            }))
+        }
+
+        _ => JsonRpcResponse::err(id.clone(), -32602, format!("Unknown tool: {name}")),
+    }
+}
